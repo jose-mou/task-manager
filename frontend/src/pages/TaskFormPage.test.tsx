@@ -47,6 +47,22 @@ describe('TaskFormPage - create', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows an inline cronExpr error for a syntactically invalid cron expression', async () => {
+    const user = userEvent.setup()
+    renderAt('/tasks/new')
+
+    await user.type(screen.getByLabelText(/name/i), 'Nightly backup')
+    await user.type(screen.getByLabelText(/service/i), 'backup-service')
+    await user.type(screen.getByLabelText(/^script/i), '/opt/scripts/backup.sh')
+    await user.click(screen.getByLabelText(/scheduled/i))
+    await user.type(screen.getByLabelText(/cron/i), 'not-a-cron')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    expect(await screen.findByLabelText(/cron/i)).toHaveAccessibleDescription(
+      'must be a valid 6-field cron expression when the task is scheduled',
+    )
+  })
+
   it('surfaces the 409 duplicate-name error on the name field', async () => {
     seedTask({ name: 'Backup' })
     const user = userEvent.setup()

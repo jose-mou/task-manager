@@ -159,4 +159,31 @@ class TaskControllerTest {
 			.andExpect(jsonPath("$.message").value("Task " + id + " not found"));
 	}
 
+	@Test
+	void createReturns400InTheContractShapeWhenAFieldHasTheWrongJsonType() throws Exception {
+		mockMvc
+			.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"name":"Nightly backup","service":"svc","script":"s","maxExecutions":"many"}
+						"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("Validation failed"))
+			.andExpect(jsonPath("$.errors[0].field").value("maxExecutions"));
+	}
+
+	@Test
+	void createReturns400InTheContractShapeWhenTheBodyIsNotJson() throws Exception {
+		mockMvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content("not json at all"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("Validation failed"))
+			.andExpect(jsonPath("$.errors[0].field").value("body"));
+	}
+
+	@Test
+	void getReturns404WhenTheIdIsNotAUuid() throws Exception {
+		mockMvc.perform(get("/api/tasks/not-a-uuid"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.message").value("Task not-a-uuid not found"));
+	}
+
 }

@@ -75,6 +75,12 @@ class TaskAcceptanceTest {
 		});
 	}
 
+	private ResponseEntity<Map<String, Object>> getTask(String id) {
+		return restTemplate.exchange(TASKS_URL + "/" + id, HttpMethod.GET, null,
+				new ParameterizedTypeReference<Map<String, Object>>() {
+				});
+	}
+
 	private ResponseEntity<List<Map<String, Object>>> listTasks() {
 		return restTemplate.exchange(TASKS_URL, HttpMethod.GET, null,
 				new ParameterizedTypeReference<List<Map<String, Object>>>() {
@@ -231,6 +237,74 @@ class TaskAcceptanceTest {
 			.toList();
 
 		assertThat(orderedRelevantNames).containsExactly(thirdName, secondName, firstName);
+	}
+
+	// ---- contract endpoints without a dedicated acceptance criterion --------
+	// GET /api/tasks/{id} is part of api/openapi.yaml but is not spelled out as an
+	// acceptance criterion of specs/task-management.md; it is covered here so the
+	// frozen contract has end-to-end proof for every one of its operations.
+
+	@Test
+	void fetchingAStoredTaskByIdReturns200WithTheFullTask() {
+		Map<String, Object> payload = minimalTaskPayload(uniqueName("Fetch by id"));
+		payload.put("description", "fetched by id");
+		ResponseEntity<Map<String, Object>> created = createTask(payload);
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		String id = (String) created.getBody().get("id");
+
+		ResponseEntity<Map<String, Object>> response = getTask(id);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).containsAllEntriesOf(created.getBody());
+	}
+
+	@Test
+	void fetchingATaskWithAnUnknownIdReturns404() {
+		String unknownId = UUID.randomUUID().toString();
+
+		ResponseEntity<Map<String, Object>> response = getTask(unknownId);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(response.getBody().get("message")).isEqualTo("Task " + unknownId + " not found");
+	}
+
+	@Test
+	void serverManagedFieldsSentByTheClientAreIgnoredOnCreateAndUpdate() {
+		// specs/task-management.md, behaviour rule 9: id, creationDate and
+		// modificationDate are server-managed and any client-supplied value is ignored.
+		String forgedId = UUID.randomUUID().toString();
+		String forgedDate = "2000-01-01T00:00:00Z";
+		Map<String, Object> payload = minimalTaskPayload(uniqueName("Forged metadata"));
+		payload.put("id", forgedId);
+		payload.put("creationDate", forgedDate);
+		payload.put("modificationDate", forgedDate);
+
+		ResponseEntity<Map<String, Object>> created = createTask(payload);
+
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		String id = (String) created.getBody().get("id");
+		String creationDate = (String) created.getBody().get("creationDate");
+		assertThat(id).isNotEqualTo(forgedId);
+		assertThat(creationDate).isNotEqualTo(forgedDate);
+
+		ResponseEntity<Map<String, Object>> updated = updateTask(id, payload);
+
+		assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(updated.getBody().get("id")).isEqualTo(id);
+		assertThat(updated.getBody().get("creationDate")).isEqualTo(creationDate);
+		assertThat(updated.getBody().get("modificationDate")).isNotEqualTo(forgedDate);
+	}
+
+	@Test
+	void aPayloadWhoseFieldsHaveTheWrongJsonTypeStillReturnsTheContract400Shape() {
+		Map<String, Object> payload = minimalTaskPayload(uniqueName("Wrong types"));
+		payload.put("maxExecutions", "many");
+
+		ResponseEntity<Map<String, Object>> response = createTask(payload);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody().get("message")).isEqualTo("Validation failed");
+		assertThat(errorsOf(response)).extracting(error -> error.get("field")).contains("maxExecutions");
 	}
 
 }

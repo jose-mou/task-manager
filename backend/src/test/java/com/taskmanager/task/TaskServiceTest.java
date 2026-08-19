@@ -2,10 +2,11 @@ package com.taskmanager.task;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -43,7 +44,7 @@ class TaskServiceTest {
 	@Test
 	void createGeneratesIdAndSetsCreationDateEqualToModificationDate() {
 		when(repository.existsByNameIgnoreCase("Nightly backup")).thenReturn(false);
-		when(repository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.saveAndFlush(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		Task created = service().create(minimalFields("Nightly backup"));
 
@@ -61,7 +62,27 @@ class TaskServiceTest {
 		assertThatThrownBy(() -> service().create(minimalFields("backup")))
 			.isInstanceOf(DuplicateTaskNameException.class);
 
-		verify(repository, never()).save(any());
+		verify(repository, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void createReportsDuplicateWhenTheUniqueIndexRejectsANameThatSlippedPastThePreCheck() {
+		when(repository.existsByNameIgnoreCase("Nightly backup")).thenReturn(false);
+		when(repository.saveAndFlush(any(Task.class))).thenThrow(uniqueViolation());
+
+		assertThatThrownBy(() -> service().create(minimalFields("Nightly backup")))
+			.isInstanceOf(DuplicateTaskNameException.class)
+			.hasMessage("A task with name 'Nightly backup' already exists");
+	}
+
+	@Test
+	void createPropagatesIntegrityViolationsThatAreNotUniqueNameConflicts() {
+		when(repository.existsByNameIgnoreCase("Nightly backup")).thenReturn(false);
+		DataIntegrityViolationException other = new DataIntegrityViolationException("not null violation",
+				new SQLException("null value in column", "23502"));
+		when(repository.saveAndFlush(any(Task.class))).thenThrow(other);
+
+		assertThatThrownBy(() -> service().create(minimalFields("Nightly backup"))).isSameAs(other);
 	}
 
 	@Test
@@ -82,7 +103,7 @@ class TaskServiceTest {
 		UUID id = existing.getId();
 		when(repository.findById(id)).thenReturn(Optional.of(existing));
 		when(repository.findByNameIgnoreCase("Original name")).thenReturn(Optional.of(existing));
-		when(repository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.saveAndFlush(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		TaskFields updateFields = new TaskFields("Original name", "svc", "updated description",
 				TaskStatus.COMPLETED, "/opt/scripts/b.sh", null, null, false);
@@ -108,7 +129,7 @@ class TaskServiceTest {
 		assertThatThrownBy(() -> service().update(existing.getId(), minimalFields("Task B")))
 			.isInstanceOf(DuplicateTaskNameException.class);
 
-		verify(repository, never()).save(any());
+		verify(repository, never()).saveAndFlush(any());
 	}
 
 	@Test
@@ -117,7 +138,7 @@ class TaskServiceTest {
 				false, fixedNow);
 		when(repository.findById(existing.getId())).thenReturn(Optional.of(existing));
 		when(repository.findByNameIgnoreCase("Task A")).thenReturn(Optional.of(existing));
-		when(repository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.saveAndFlush(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		Task updated = service().update(existing.getId(), minimalFields("Task A"));
 
@@ -147,6 +168,12 @@ class TaskServiceTest {
 		when(repository.findAllByOrderByCreationDateDesc()).thenReturn(tasks);
 
 		assertThat(service().listAll()).isEqualTo(tasks);
+	}
+
+	/** What the ux_tasks_name_ci index raises: SQL state 23505, unique violation. */
+	private DataIntegrityViolationException uniqueViolation() {
+		return new DataIntegrityViolationException("could not execute statement",
+				new SQLException("duplicate key value violates unique constraint \"ux_tasks_name_ci\"", "23505"));
 	}
 
 }

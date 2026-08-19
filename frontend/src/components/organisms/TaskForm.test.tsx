@@ -116,6 +116,54 @@ describe('TaskForm', () => {
     ).toBeInTheDocument()
   })
 
+  it('associates every field error with its own control', () => {
+    render(
+      <TaskForm
+        onSubmit={vi.fn()}
+        fieldErrors={[
+          { field: 'description', message: 'description is invalid' },
+          { field: 'status', message: 'must be one of CREATED, RUNNING, COMPLETED, CANCELED' },
+        ]}
+      />,
+    )
+
+    expect(screen.getByLabelText(/description/i)).toHaveAccessibleDescription(
+      'description is invalid',
+    )
+    expect(screen.getByLabelText(/status/i)).toHaveAccessibleDescription(
+      'must be one of CREATED, RUNNING, COMPLETED, CANCELED',
+    )
+    expect(screen.getByLabelText(/description/i)).toBeInvalid()
+  })
+
+  it('round-trips the scheduling fields of an unscheduled task instead of wiping them', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <TaskForm
+        onSubmit={onSubmit}
+        initialValues={{
+          name: 'Cache warmup',
+          service: 'cache-service',
+          script: '/opt/scripts/warmup.sh',
+          scheduled: false,
+          cronExpr: '0 0 2 * * *',
+          maxExecutions: 1,
+        }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduled: false,
+        cronExpr: '0 0 2 * * *',
+        maxExecutions: 1,
+      }),
+    )
+  })
+
   it('surfaces the 409 duplicate-name error on the name field', () => {
     render(
       <TaskForm

@@ -26,6 +26,7 @@ export function TaskFormPage() {
   const [initialValues, setInitialValues] = useState<Partial<TaskFormValues>>()
   const [notFound, setNotFound] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>()
   const [submitting, setSubmitting] = useState(false)
 
@@ -49,6 +50,7 @@ export function TaskFormPage() {
   async function handleSubmit(payload: TaskRequest) {
     setSubmitting(true)
     setFieldErrors(undefined)
+    setSubmitError(null)
     try {
       if (isEdit && id) {
         await updateTask(id, payload)
@@ -62,7 +64,7 @@ export function TaskFormPage() {
       } else if (error instanceof ApiConflictError) {
         setFieldErrors([{ field: 'name', message: error.message }])
       } else {
-        setLoadError('Could not save the task.')
+        setSubmitError('Could not save the task.')
       }
     } finally {
       setSubmitting(false)
@@ -90,7 +92,7 @@ export function TaskFormPage() {
   return (
     <section>
       <h1>{isEdit ? 'Edit task' : 'New task'}</h1>
-      {loadError && <p role="alert">{loadError}</p>}
+      {submitError && <p role="alert">{submitError}</p>}
       <TaskForm
         initialValues={initialValues}
         fieldErrors={fieldErrors}

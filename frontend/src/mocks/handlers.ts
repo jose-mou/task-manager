@@ -40,6 +40,13 @@ export function seedTask(overrides: Partial<Task> = {}): Task {
   return task
 }
 
+/** A Spring cron expression has exactly six whitespace-separated fields. */
+const SIX_FIELD_CRON = /^\S+(?:\s+\S+){5}$/
+
+function isValidCron(expression: string | null | undefined): boolean {
+  return expression != null && SIX_FIELD_CRON.test(expression.trim())
+}
+
 function validate(payload: TaskRequest): FieldError[] {
   const errors: FieldError[] = []
 
@@ -61,7 +68,7 @@ function validate(payload: TaskRequest): FieldError[] {
       message: 'must be one of CREATED, RUNNING, COMPLETED, CANCELED',
     })
   }
-  if (payload.scheduled && (!payload.cronExpr || !payload.cronExpr.trim())) {
+  if (payload.scheduled && !isValidCron(payload.cronExpr)) {
     errors.push({
       field: 'cronExpr',
       message:
