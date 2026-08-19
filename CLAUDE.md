@@ -13,6 +13,15 @@
 
 All specs, implementations and reviews must target this stack. Do not introduce other languages, frameworks or databases without an approved spec that justifies it.
 
+## Development commands
+
+- JDK 25 is managed with SDKMAN: `source ~/.sdkman/bin/sdkman-init.sh` (or set `JAVA_HOME=~/.sdkman/candidates/java/current`).
+- Backend tests/build: `cd backend && ./gradlew test` / `./gradlew build`. Tests use Testcontainers (real PostgreSQL in Docker); no local database needed.
+- Docker runs on Colima; the Testcontainers socket override is already configured in `backend/build.gradle`.
+- Frontend: `cd frontend && npm run dev` (dev server), `npm run build` (production build).
+- Full local stack: `docker compose up --build` → frontend on :3000 (nginx proxies `/api/` to the backend), backend on :8080, PostgreSQL on :5432.
+- Dev database only: `docker compose up postgres` (backend defaults point to `localhost:5432`, db/user/password `taskmanager`).
+
 ## Development methodology
 
 This project works with **Spec Driven Development (SDD)** and **strict TDD**. All feature work follows the three-phase pipeline, started with the `/sdd <feature description>` command:
