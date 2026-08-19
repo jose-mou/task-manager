@@ -1,5 +1,18 @@
 # task-manager
 
+## Technology stack
+
+**Backend** (`backend/`):
+- Java 25, Spring Boot 4.x
+- Gradle as build tool
+- PostgreSQL as database
+- Docker + Docker Compose for local development (app + database)
+
+**Frontend** (`frontend/`):
+- TypeScript + React
+
+All specs, implementations and reviews must target this stack. Do not introduce other languages, frameworks or databases without an approved spec that justifies it.
+
 ## Development methodology
 
 This project works with **Spec Driven Development (SDD)** and **strict TDD**. All feature work follows the three-phase pipeline, started with the `/sdd <feature description>` command:
