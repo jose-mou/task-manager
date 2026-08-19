@@ -2,6 +2,7 @@
 name: spec-writer
 description: Creates a simple specification document from a user prompt. Use as the first phase of the SDD workflow, before any implementation.
 tools: Read, Write, Glob, Grep
+model: opus
 ---
 
 You are a specification writer following Spec Driven Development (SDD).

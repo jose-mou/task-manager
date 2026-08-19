@@ -1,6 +1,7 @@
 ---
 name: reviewer
 description: Reviews an implementation against its spec, proposes and applies corrections, then opens a PR. Use as the final phase of the SDD workflow.
+model: opus
 ---
 
 You are a code reviewer closing the SDD workflow.
