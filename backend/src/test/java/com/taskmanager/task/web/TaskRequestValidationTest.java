@@ -1,24 +1,52 @@
-package com.taskmanager.task.validation;
+package com.taskmanager.task.web;
 
-import com.taskmanager.task.TaskValidationException.FieldValidationError;
-import com.taskmanager.task.web.TaskRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TaskRequestValidatorTest {
+/**
+ * Unit-level proof that {@link TaskRequest}'s declarative Bean Validation
+ * constraints enforce every rule from specs/task-management.md, one case per
+ * rule. The end-to-end 400 payload shape (message, field names, ordering) is
+ * covered by {@link TaskControllerTest} and the acceptance tests.
+ */
+class TaskRequestValidationTest {
 
-	private final TaskRequestValidator validator = new TaskRequestValidator();
+	private static ValidatorFactory validatorFactory;
+
+	private static Validator validator;
+
+	@BeforeAll
+	static void setUpValidator() {
+		validatorFactory = Validation.buildDefaultValidatorFactory();
+		validator = validatorFactory.getValidator();
+	}
+
+	@AfterAll
+	static void closeValidatorFactory() {
+		validatorFactory.close();
+	}
 
 	private TaskRequest validRequest() {
 		return new TaskRequest("Nightly backup", "backup-service", null, null, "/opt/scripts/backup.sh", null, null,
 				null);
 	}
 
+	private Set<String> fieldsOf(Set<ConstraintViolation<TaskRequest>> violations) {
+		return violations.stream().map(violation -> violation.getPropertyPath().toString()).collect(Collectors.toSet());
+	}
+
 	@Test
-	void validRequestHasNoErrors() {
+	void validRequestHasNoViolations() {
 		assertThat(validator.validate(validRequest())).isEmpty();
 	}
 
@@ -27,9 +55,7 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("   ", "backup-service", null, null, "/opt/scripts/backup.sh", null, 0,
 				null);
 
-		List<FieldValidationError> errors = validator.validate(request);
-
-		assertThat(errors).extracting(FieldValidationError::field).contains("name", "maxExecutions");
+		assertThat(fieldsOf(validator.validate(request))).contains("name", "maxExecutions");
 	}
 
 	@Test
@@ -37,14 +63,14 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("Nightly backup", " ", null, null, "/opt/scripts/backup.sh", null,
 				null, null);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("service");
+		assertThat(fieldsOf(validator.validate(request))).contains("service");
 	}
 
 	@Test
 	void blankScriptIsReported() {
 		TaskRequest request = new TaskRequest("Nightly backup", "backup-service", null, null, " ", null, null, null);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("script");
+		assertThat(fieldsOf(validator.validate(request))).contains("script");
 	}
 
 	@Test
@@ -52,7 +78,7 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("Nightly backup", "backup-service", null, null,
 				"/opt/scripts/backup.sh", null, null, true);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("cronExpr");
+		assertThat(fieldsOf(validator.validate(request))).contains("cronExpr");
 	}
 
 	@Test
@@ -60,7 +86,7 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("Nightly backup", "backup-service", null, null,
 				"/opt/scripts/backup.sh", "not a valid cron expression", null, true);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("cronExpr");
+		assertThat(fieldsOf(validator.validate(request))).contains("cronExpr");
 	}
 
 	@Test
@@ -84,7 +110,7 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("Nightly backup", "backup-service", null, null,
 				"/opt/scripts/backup.sh", null, 0, null);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("maxExecutions");
+		assertThat(fieldsOf(validator.validate(request))).contains("maxExecutions");
 	}
 
 	@Test
@@ -100,7 +126,7 @@ class TaskRequestValidatorTest {
 		TaskRequest request = new TaskRequest("Nightly backup", "backup-service", null, "PAUSED",
 				"/opt/scripts/backup.sh", null, null, null);
 
-		assertThat(validator.validate(request)).extracting(FieldValidationError::field).contains("status");
+		assertThat(fieldsOf(validator.validate(request))).contains("status");
 	}
 
 	@Test

@@ -2,15 +2,16 @@ package com.taskmanager.task.web;
 
 import com.taskmanager.task.DuplicateTaskNameException;
 import com.taskmanager.task.TaskNotFoundException;
-import com.taskmanager.task.TaskValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import tools.jackson.core.JacksonException;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,9 +20,29 @@ import java.util.Optional;
 @RestControllerAdvice(assignableTypes = TaskController.class)
 public class TaskExceptionHandler {
 
-	@ExceptionHandler(TaskValidationException.class)
-	public ResponseEntity<ValidationErrorResponse> handleValidation(TaskValidationException ex) {
-		List<FieldError> errors = ex.getErrors().stream().map(e -> new FieldError(e.field(), e.message())).toList();
+	/**
+	 * Declaration order of {@link TaskRequest}'s fields, used only to make the
+	 * {@code errors} list deterministic: Bean Validation does not guarantee the
+	 * order in which it reports violations from several constraints.
+	 */
+	private static final List<String> FIELD_ORDER = List.of("name", "service", "description", "status", "script",
+			"cronExpr", "maxExecutions", "scheduled");
+
+	/**
+	 * Maps every field-level Bean Validation failure (declarative constraints on
+	 * {@link TaskRequest}, including the class-level {@link
+	 * com.taskmanager.task.validation.ValidScheduledCron} rule reported on the
+	 * {@code cronExpr} property) to the same 400 payload shape the contract has
+	 * always returned.
+	 */
+	@ExceptionHandler(MethodArgumentNotValidException.class)
+	public ResponseEntity<ValidationErrorResponse> handleBeanValidation(MethodArgumentNotValidException ex) {
+		List<FieldError> errors = ex.getBindingResult()
+			.getFieldErrors()
+			.stream()
+			.map(fieldError -> new FieldError(fieldError.getField(), fieldError.getDefaultMessage()))
+			.sorted(Comparator.comparingInt(error -> FIELD_ORDER.indexOf(error.field())))
+			.toList();
 		return ResponseEntity.badRequest().body(new ValidationErrorResponse("Validation failed", errors));
 	}
 
