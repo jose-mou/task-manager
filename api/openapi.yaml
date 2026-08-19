@@ -1,0 +1,558 @@
+openapi: 3.1.0
+info:
+  title: Task Manager API
+  version: 1.0.0
+  description: |
+    REST API of the task-manager application.
+
+    Covers the task catalogue: creating, reading, listing and fully updating
+    tasks together with their scheduling metadata.
+
+    Conventions:
+      - All endpoints live under `/api/`.
+      - Timestamps are UTC instants in ISO-8601 / RFC 3339 format.
+      - `id`, `creationDate` and `modificationDate` are server-managed: they are
+        read-only and any client-supplied value is ignored.
+      - Validation failures return a single `400` payload listing every
+        offending field.
+servers:
+  - url: http://localhost:8080
+    description: Local backend
+  - url: http://localhost:3000
+    description: Local stack through the frontend nginx proxy
+security: []
+tags:
+  - name: Tasks
+    description: Task catalogue management.
+paths:
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List all tasks
+      description: Returns every stored task ordered by `creationDate` descending (newest first).
+      responses:
+        '200':
+          description: The list of tasks, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+              examples:
+                threeTasks:
+                  summary: Three stored tasks, newest first
+                  value:
+                    - id: 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+                      name: Nightly backup
+                      creationDate: '2026-08-19T22:00:00Z'
+                      modificationDate: '2026-08-19T22:30:00Z'
+                      service: backup-service
+                      description: Full database dump uploaded to cold storage.
+                      status: RUNNING
+                      script: /opt/scripts/backup.sh
+                      cronExpr: 0 0 2 * * *
+                      maxExecutions: 30
+                      scheduled: true
+                    - id: 9c0a5d17-6b2e-4f10-8f4d-1a7c9e2b6d55
+                      name: Report generation
+                      creationDate: '2026-08-19T10:15:00Z'
+                      modificationDate: '2026-08-19T10:15:00Z'
+                      service: reporting-service
+                      description: null
+                      status: CREATED
+                      script: /opt/scripts/report.sh
+                      cronExpr: null
+                      maxExecutions: null
+                      scheduled: false
+                    - id: 5d2e7a90-4c11-4b8e-9d3a-8e6f0b1c2a44
+                      name: Cache warmup
+                      creationDate: '2026-08-18T08:00:00Z'
+                      modificationDate: '2026-08-18T09:45:00Z'
+                      service: cache-service
+                      description: Preloads the product catalogue cache.
+                      status: COMPLETED
+                      script: /opt/scripts/warmup.sh
+                      cronExpr: null
+                      maxExecutions: 1
+                      scheduled: false
+                empty:
+                  summary: No tasks stored yet
+                  value: []
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a task
+      description: |
+        Creates a task. The server generates `id` and sets `creationDate` equal to
+        `modificationDate`. Omitted optional fields default to `status=CREATED`,
+        `scheduled=false` and `maxExecutions=null` (unlimited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+            examples:
+              minimal:
+                summary: Only the required fields
+                value:
+                  name: Report generation
+                  service: reporting-service
+                  script: /opt/scripts/report.sh
+              scheduled:
+                summary: Scheduled task with a cron expression
+                value:
+                  name: Nightly backup
+                  service: backup-service
+                  description: Full database dump uploaded to cold storage.
+                  status: CREATED
+                  script: /opt/scripts/backup.sh
+                  cronExpr: 0 0 2 * * *
+                  maxExecutions: 30
+                  scheduled: true
+      responses:
+        '201':
+          description: The task was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                created:
+                  summary: Task created from the minimal payload
+                  value:
+                    id: 9c0a5d17-6b2e-4f10-8f4d-1a7c9e2b6d55
+                    name: Report generation
+                    creationDate: '2026-08-19T10:15:00Z'
+                    modificationDate: '2026-08-19T10:15:00Z'
+                    service: reporting-service
+                    description: null
+                    status: CREATED
+                    script: /opt/scripts/report.sh
+                    cronExpr: null
+                    maxExecutions: null
+                    scheduled: false
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/DuplicateName'
+  /api/tasks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Fetch a single task
+      responses:
+        '200':
+          description: The requested task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                task:
+                  summary: A scheduled task
+                  value:
+                    id: 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+                    name: Nightly backup
+                    creationDate: '2026-08-19T22:00:00Z'
+                    modificationDate: '2026-08-19T22:30:00Z'
+                    service: backup-service
+                    description: Full database dump uploaded to cold storage.
+                    status: RUNNING
+                    script: /opt/scripts/backup.sh
+                    cronExpr: 0 0 2 * * *
+                    maxExecutions: 30
+                    scheduled: true
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
+    put:
+      tags: [Tasks]
+      operationId: updateTask
+      summary: Full update of a task
+      description: |
+        Replaces every editable field of the task. Omitted optional fields fall back
+        to their defaults (`status=CREATED`, `scheduled=false`, `maxExecutions=null`),
+        exactly as on create. `creationDate` is preserved and `modificationDate` is
+        set to the current instant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRequest'
+            examples:
+              completed:
+                summary: Update fields and mark the task as completed
+                value:
+                  name: Nightly backup
+                  service: backup-service
+                  description: Full database dump uploaded to cold storage.
+                  status: COMPLETED
+                  script: /opt/scripts/backup-v2.sh
+                  cronExpr: 0 0 2 * * *
+                  maxExecutions: 30
+                  scheduled: true
+      responses:
+        '200':
+          description: The updated task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                updated:
+                  summary: Task after the update
+                  value:
+                    id: 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+                    name: Nightly backup
+                    creationDate: '2026-08-19T22:00:00Z'
+                    modificationDate: '2026-08-20T07:05:12Z'
+                    service: backup-service
+                    description: Full database dump uploaded to cold storage.
+                    status: COMPLETED
+                    script: /opt/scripts/backup-v2.sh
+                    cronExpr: 0 0 2 * * *
+                    maxExecutions: 30
+                    scheduled: true
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
+        '409':
+          $ref: '#/components/responses/DuplicateName'
+components:
+  parameters:
+    TaskId:
+      name: id
+      in: path
+      required: true
+      description: Server-generated identifier of the task.
+      schema:
+        type: string
+        format: uuid
+        examples:
+          - 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+  responses:
+    ValidationError:
+      description: |
+        The payload is invalid. The response lists every offending field:
+        blank `name`, `service` or `script`, unknown `status`, missing or invalid
+        `cronExpr` when `scheduled` is true, and `maxExecutions` below 1.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          examples:
+            multipleFields:
+              summary: Blank name and maxExecutions below the minimum
+              value:
+                message: Validation failed
+                errors:
+                  - field: name
+                    message: must not be blank
+                  - field: maxExecutions
+                    message: must be greater than or equal to 1
+            invalidCron:
+              summary: scheduled=true with an invalid cron expression
+              value:
+                message: Validation failed
+                errors:
+                  - field: cronExpr
+                    message: must be a valid 6-field cron expression when the task is scheduled
+            invalidStatus:
+              summary: Unknown status value
+              value:
+                message: Validation failed
+                errors:
+                  - field: status
+                    message: must be one of CREATED, RUNNING, COMPLETED, CANCELED
+    TaskNotFound:
+      description: No task exists with the given id.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notFound:
+              summary: Unknown task id
+              value:
+                message: Task 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31 not found
+    DuplicateName:
+      description: Another task already uses this `name` (comparison is case-insensitive).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            duplicate:
+              summary: A task named "Backup" already exists
+              value:
+                message: A task with name 'backup' already exists
+  schemas:
+    TaskStatus:
+      type: string
+      description: |
+        Lifecycle status of a task. Any value is accepted on create and update
+        regardless of the current one; no transition is validated.
+      enum:
+        - CREATED
+        - RUNNING
+        - COMPLETED
+        - CANCELED
+      default: CREATED
+      examples:
+        - CREATED
+    TaskRequest:
+      type: object
+      description: |
+        Payload accepted by `POST /api/tasks` and `PUT /api/tasks/{id}`.
+        Server-managed fields (`id`, `creationDate`, `modificationDate`) are not part
+        of this payload; if a client sends them they are ignored.
+      required:
+        - name
+        - service
+        - script
+      properties:
+        name:
+          type: string
+          description: |
+            Human-readable task name. Required, non-blank and unique
+            case-insensitively across all tasks.
+          minLength: 1
+          pattern: \S
+          examples:
+            - Nightly backup
+        service:
+          type: string
+          description: |
+            Name of the service that owns the task. Required and non-blank.
+            Stored as free text and accepted as-is: it is not checked against a
+            service registry.
+          minLength: 1
+          pattern: \S
+          examples:
+            - backup-service
+        description:
+          type:
+            - string
+            - 'null'
+          description: Optional free-text description of the task.
+          default: null
+          examples:
+            - Full database dump uploaded to cold storage.
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        script:
+          type: string
+          description: Script the task runs. Required and non-blank.
+          minLength: 1
+          pattern: \S
+          examples:
+            - /opt/scripts/backup.sh
+        cronExpr:
+          type:
+            - string
+            - 'null'
+          description: |
+            Spring 6-field cron expression (second, minute, hour, day of month,
+            month, day of week). Optional in general, but required and syntactically
+            valid when `scheduled` is `true`.
+          default: null
+          examples:
+            - 0 0 2 * * *
+        maxExecutions:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: |
+            Maximum number of executions. When omitted or `null` the number of
+            executions is unlimited. When present it must be an integer >= 1.
+          minimum: 1
+          default: null
+          examples:
+            - 30
+        scheduled:
+          type: boolean
+          description: |
+            Whether the task is scheduled. When `true`, `cronExpr` is required and
+            must be a valid Spring 6-field cron expression.
+          default: false
+          examples:
+            - true
+      examples:
+        - name: Nightly backup
+          service: backup-service
+          description: Full database dump uploaded to cold storage.
+          status: CREATED
+          script: /opt/scripts/backup.sh
+          cronExpr: 0 0 2 * * *
+          maxExecutions: 30
+          scheduled: true
+    Task:
+      type: object
+      description: A stored task, as returned by the API.
+      required:
+        - id
+        - name
+        - creationDate
+        - modificationDate
+        - service
+        - description
+        - status
+        - script
+        - cronExpr
+        - maxExecutions
+        - scheduled
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Server-generated identifier of the task.
+          examples:
+            - 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+        name:
+          type: string
+          description: Human-readable task name, unique case-insensitively.
+          minLength: 1
+          pattern: \S
+          examples:
+            - Nightly backup
+        creationDate:
+          type: string
+          format: date-time
+          readOnly: true
+          description: |
+            UTC instant at which the task was created. Never changes after creation.
+          examples:
+            - '2026-08-19T22:00:00Z'
+        modificationDate:
+          type: string
+          format: date-time
+          readOnly: true
+          description: |
+            UTC instant of the last modification. Equal to `creationDate` right after
+            creation, strictly greater after any update.
+          examples:
+            - '2026-08-19T22:30:00Z'
+        service:
+          type: string
+          description: Name of the service that owns the task, stored as free text.
+          minLength: 1
+          pattern: \S
+          examples:
+            - backup-service
+        description:
+          type:
+            - string
+            - 'null'
+          description: Optional free-text description of the task.
+          examples:
+            - Full database dump uploaded to cold storage.
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        script:
+          type: string
+          description: Script the task runs.
+          minLength: 1
+          pattern: \S
+          examples:
+            - /opt/scripts/backup.sh
+        cronExpr:
+          type:
+            - string
+            - 'null'
+          description: Spring 6-field cron expression, or `null` when not set.
+          examples:
+            - 0 0 2 * * *
+        maxExecutions:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          minimum: 1
+          description: Maximum number of executions, or `null` for unlimited.
+          examples:
+            - 30
+        scheduled:
+          type: boolean
+          description: Whether the task is scheduled.
+          examples:
+            - true
+      examples:
+        - id: 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+          name: Nightly backup
+          creationDate: '2026-08-19T22:00:00Z'
+          modificationDate: '2026-08-19T22:30:00Z'
+          service: backup-service
+          description: Full database dump uploaded to cold storage.
+          status: RUNNING
+          script: /opt/scripts/backup.sh
+          cronExpr: 0 0 2 * * *
+          maxExecutions: 30
+          scheduled: true
+    TaskList:
+      type: array
+      description: Tasks ordered by `creationDate` descending (newest first).
+      items:
+        $ref: '#/components/schemas/Task'
+    FieldError:
+      type: object
+      description: A single validation failure bound to a request field.
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+          description: Name of the offending field of the request payload.
+          examples:
+            - maxExecutions
+        message:
+          type: string
+          description: Human-readable explanation of why the field is invalid.
+          examples:
+            - must be greater than or equal to 1
+    ValidationErrorResponse:
+      type: object
+      description: |
+        Returned with `400` when the payload is invalid. `errors` lists every
+        offending field of the request, not just the first one.
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          description: Summary of the failure.
+          examples:
+            - Validation failed
+        errors:
+          type: array
+          description: One entry per offending field.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FieldError'
+      examples:
+        - message: Validation failed
+          errors:
+            - field: name
+              message: must not be blank
+            - field: maxExecutions
+              message: must be greater than or equal to 1
+    ErrorResponse:
+      type: object
+      description: Generic error payload used for `404` and `409` responses.
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable explanation of the error.
+          examples:
+            - Task 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31 not found
+      examples:
+        - message: A task with name 'backup' already exists
