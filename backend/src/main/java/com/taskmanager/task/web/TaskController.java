@@ -4,9 +4,7 @@ import com.taskmanager.task.Task;
 import com.taskmanager.task.TaskFields;
 import com.taskmanager.task.TaskService;
 import com.taskmanager.task.TaskStatus;
-import com.taskmanager.task.TaskValidationException;
-import com.taskmanager.task.TaskValidationException.FieldValidationError;
-import com.taskmanager.task.validation.TaskRequestValidator;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,23 +25,18 @@ public class TaskController {
 
 	private final TaskService taskService;
 
-	private final TaskRequestValidator taskRequestValidator;
-
-	public TaskController(TaskService taskService, TaskRequestValidator taskRequestValidator) {
+	public TaskController(TaskService taskService) {
 		this.taskService = taskService;
-		this.taskRequestValidator = taskRequestValidator;
 	}
 
 	@PostMapping
-	public ResponseEntity<TaskResponse> create(@RequestBody TaskRequest request) {
-		validate(request);
+	public ResponseEntity<TaskResponse> create(@Valid @RequestBody TaskRequest request) {
 		Task task = taskService.create(toFields(request));
 		return ResponseEntity.status(HttpStatus.CREATED).body(TaskResponse.from(task));
 	}
 
 	@PutMapping("/{id}")
-	public ResponseEntity<TaskResponse> update(@PathVariable UUID id, @RequestBody TaskRequest request) {
-		validate(request);
+	public ResponseEntity<TaskResponse> update(@PathVariable UUID id, @Valid @RequestBody TaskRequest request) {
 		Task task = taskService.update(id, toFields(request));
 		return ResponseEntity.ok(TaskResponse.from(task));
 	}
@@ -56,13 +49,6 @@ public class TaskController {
 	@GetMapping
 	public List<TaskResponse> list() {
 		return taskService.listAll().stream().map(TaskResponse::from).toList();
-	}
-
-	private void validate(TaskRequest request) {
-		List<FieldValidationError> errors = taskRequestValidator.validate(request);
-		if (!errors.isEmpty()) {
-			throw new TaskValidationException(errors);
-		}
 	}
 
 	private TaskFields toFields(TaskRequest request) {

@@ -6,9 +6,6 @@ import com.taskmanager.task.TaskFields;
 import com.taskmanager.task.TaskNotFoundException;
 import com.taskmanager.task.TaskService;
 import com.taskmanager.task.TaskStatus;
-import com.taskmanager.task.TaskValidationException;
-import com.taskmanager.task.TaskValidationException.FieldValidationError;
-import com.taskmanager.task.validation.TaskRequestValidator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -38,9 +35,6 @@ class TaskControllerTest {
 	@MockitoBean
 	private TaskService taskService;
 
-	@MockitoBean
-	private TaskRequestValidator taskRequestValidator;
-
 	private Task sampleTask(String name) {
 		return Task.create(name, "backup-service", "desc", TaskStatus.CREATED, "/opt/scripts/backup.sh", null, null,
 				false, Instant.parse("2026-08-19T10:15:00Z"));
@@ -48,7 +42,6 @@ class TaskControllerTest {
 
 	@Test
 	void createReturns201WithTaskBody() throws Exception {
-		when(taskRequestValidator.validate(any())).thenReturn(List.of());
 		Task created = sampleTask("Nightly backup");
 		when(taskService.create(any(TaskFields.class))).thenReturn(created);
 
@@ -67,10 +60,6 @@ class TaskControllerTest {
 
 	@Test
 	void createReturns400WithFieldErrorsWhenValidationFails() throws Exception {
-		when(taskRequestValidator.validate(any()))
-			.thenReturn(List.of(new FieldValidationError("name", "must not be blank"),
-					new FieldValidationError("maxExecutions", "must be greater than or equal to 1")));
-
 		mockMvc
 			.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -84,7 +73,6 @@ class TaskControllerTest {
 
 	@Test
 	void createReturns409WhenNameIsDuplicate() throws Exception {
-		when(taskRequestValidator.validate(any())).thenReturn(List.of());
 		when(taskService.create(any(TaskFields.class))).thenThrow(new DuplicateTaskNameException("backup"));
 
 		mockMvc
@@ -98,7 +86,6 @@ class TaskControllerTest {
 
 	@Test
 	void updateReturns200WithUpdatedTask() throws Exception {
-		when(taskRequestValidator.validate(any())).thenReturn(List.of());
 		Task updated = sampleTask("Nightly backup");
 		UUID id = updated.getId();
 		when(taskService.update(eq(id), any(TaskFields.class))).thenReturn(updated);
@@ -114,7 +101,6 @@ class TaskControllerTest {
 
 	@Test
 	void updateReturns404WhenTaskDoesNotExist() throws Exception {
-		when(taskRequestValidator.validate(any())).thenReturn(List.of());
 		UUID id = UUID.randomUUID();
 		when(taskService.update(eq(id), any(TaskFields.class))).thenThrow(new TaskNotFoundException(id));
 
