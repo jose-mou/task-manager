@@ -24,14 +24,19 @@ All specs, implementations and reviews must target this stack. Do not introduce 
 
 ## Development methodology
 
-This project works with **Spec Driven Development (SDD)** and **strict TDD**. All feature work follows the three-phase pipeline, started with the `/sdd <feature description>` command:
+This project works with **Spec Driven Development (SDD)** and **double-loop TDD** (ATDD). All feature work runs through the `/sdd <feature description>` pipeline:
 
-1. **Specification** — the `spec-writer` agent turns the user prompt into a simple spec under `specs/`. Nothing is implemented until the user approves the spec (`Status: APPROVED`).
-2. **Implementation** — the `implementer` agent implements the approved spec on a `feat/<spec-name>` branch using strict TDD (red → green → refactor; no production code without a failing test first).
-3. **Review + PR** — the `reviewer` agent reviews the implementation against the spec, applies corrections keeping tests green, and opens a PR to `main` with `gh`.
+1. **Spec** (`spec-writer`, opus) — concise spec (hard cap 80 lines) under `specs/`. Nothing else happens until the user approves it (`Status: APPROVED`).
+2. **API contract** (`api-designer`, opus) — the spec's API impact becomes `api/openapi.yaml`. The contract is then FROZEN; it is what allows backend and frontend to proceed in parallel. Mock it with `npx @stoplight/prism-cli mock api/openapi.yaml`.
+3. **Red acceptance tests** (`acceptance-tester`, sonnet) — failing API-level acceptance tests written from spec + contract (outer TDD loop), before any production code.
+4. **Implementation** (`backend-implementer` ∥ `frontend-implementer`, sonnet) — parallel, strict inner-loop TDD, each confined to its own directory, coding against the frozen contract until acceptance tests pass. Frontend tests mock HTTP with MSW per the contract.
+5. **Review** (`reviewer` ×2 in parallel, opus) — per-side review against spec and contract; corrections applied with tests kept green.
+6. **E2E verification + PR** (`e2e-verifier`, sonnet) — full suites, real stack via docker compose, one Playwright smoke test on the happy path, then the PR. On failure, exactly one bounded correction round is routed back to the failing side; a second failure escalates to the user.
 
 Rules:
-- Specs live in `specs/`, written in English, one file per feature.
-- Every acceptance criterion in a spec must map to an automated test.
+- Specs live in `specs/` (English, ≤80 lines, one file per feature). Every acceptance criterion maps to an automated test.
+- The pipeline degrades: phases a spec does not need (no API impact, no UI impact) are skipped — no ceremony without value.
+- The orchestrator owns the `feat/<spec-name>` branch and all commits; sub-agents never run git (only `e2e-verifier` pushes and opens the PR).
+- Acceptance tests and the OpenAPI contract are never weakened to make code pass; conflicts escalate as blocking questions.
 - Conventional commits only; never add Co-Authored-By or AI attribution.
 - Do not merge to `main` directly; all changes land via PR from the pipeline.
