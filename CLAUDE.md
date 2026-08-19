@@ -1,5 +1,13 @@
 # task-manager
 
+## Claude Code session
+
+Launch Claude Code for this project with a bare, project-only configuration (no global user commands/agents, keeping authentication):
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-bare" claude --strict-mcp-config
+```
+
 ## Technology stack
 
 **Backend** (`backend/`):
