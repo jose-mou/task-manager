@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,6 +31,9 @@ public class JwtService {
 
 	private static final String ROLE_CLAIM = "role";
 
+	/** 256 bits, the minimum HS256 requires. */
+	private static final int GENERATED_KEY_BYTES = 32;
+
 	private final SecretKey key;
 
 	private final Duration expiration;
@@ -37,26 +41,28 @@ public class JwtService {
 	private final Clock clock;
 
 	public JwtService(@Value("${app.jwt.secret}") String base64Secret, @Value("${app.jwt.expiration}") String expiration,
-			@Value("${app.jwt.development-secret}") String developmentSecret, Clock clock) {
-		byte[] keyBytes = Base64.getDecoder().decode(base64Secret);
-		// hmacShaKeyFor refuses anything below the 256 bits HS256 requires.
-		this.key = Keys.hmacShaKeyFor(keyBytes);
+			Clock clock) {
+		this.key = (base64Secret == null || base64Secret.isBlank()) ? generateEphemeralKey()
+				: Keys.hmacShaKeyFor(Base64.getDecoder().decode(base64Secret));
 		this.expiration = Duration.parse(expiration);
 		this.clock = clock;
-		warnIfSigningWithTheDevelopmentKey(base64Secret, developmentSecret);
 	}
 
 	/**
-	 * The signing key is what makes an ADMIN token unforgeable, and the built-in
-	 * development default is committed to the repository - anyone who can read it
-	 * can mint an ADMIN JWT. Startup stays possible (the local stack and the tests
-	 * rely on the default), but never silently.
+	 * No signing key may ever be committed to the repository. When {@code
+	 * app.jwt.secret} is absent or blank, a fresh 256-bit key is generated for
+	 * this run instead of falling back to any constant. Tokens signed with it do
+	 * not survive a restart, and it must never be shared across more than one
+	 * instance - both consequences are surfaced here rather than silently, and
+	 * the key itself (or any part of it) is never logged.
 	 */
-	private void warnIfSigningWithTheDevelopmentKey(String base64Secret, String developmentSecret) {
-		if (base64Secret.equals(developmentSecret)) {
-			log.warn("app.jwt.secret is still the built-in development key: anyone with access to the source can "
-					+ "forge an ADMIN token. Set the JWT_SECRET environment variable outside local development.");
-		}
+	private SecretKey generateEphemeralKey() {
+		byte[] keyBytes = new byte[GENERATED_KEY_BYTES];
+		new SecureRandom().nextBytes(keyBytes);
+		log.warn("app.jwt.secret is not configured: generated a random signing key for this run. Issued tokens will "
+				+ "not survive a restart and this setup must not be used with more than one instance. Set the "
+				+ "JWT_SECRET environment variable to configure a persistent key.");
+		return Keys.hmacShaKeyFor(keyBytes);
 	}
 
 	public IssuedToken issue(String username, UserRole role) {

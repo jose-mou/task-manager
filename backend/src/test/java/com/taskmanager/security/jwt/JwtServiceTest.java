@@ -21,14 +21,11 @@ class JwtServiceTest {
 	private static final String SECRET = Base64.getEncoder()
 		.encodeToString("a-256-bit-or-longer-test-secret-value-for-hs256!".getBytes());
 
-	private static final String DEVELOPMENT_SECRET = Base64.getEncoder()
-		.encodeToString("the-committed-local-development-placeholder-key!!".getBytes());
-
 	private final Instant fixedNow = Instant.parse("2026-08-19T10:15:00Z");
 
 	private final Clock clock = Clock.fixed(fixedNow, ZoneOffset.UTC);
 
-	private final JwtService jwtService = new JwtService(SECRET, "PT8H", DEVELOPMENT_SECRET, clock);
+	private final JwtService jwtService = new JwtService(SECRET, "PT8H", clock);
 
 	@Test
 	void issuesATokenExpiringEightHoursFromNow() {
@@ -56,29 +53,70 @@ class JwtServiceTest {
 	}
 
 	/**
-	 * The committed development key would let anyone who can read the source forge
-	 * an ADMIN token, so using it must be visible in the startup log rather than
-	 * silent. A key that was actually configured must not raise the warning.
+	 * No signing key may ever be committed to the repository. When none is
+	 * configured, an ephemeral key is generated instead - which must be visible
+	 * in the startup log rather than silent. A key that was actually configured
+	 * must not raise the warning, and the warning itself must never leak key
+	 * material (there is nothing base64-secret-shaped in the message).
 	 */
 	@Test
-	void warnsOnlyWhenSigningWithTheCommittedDevelopmentKey() {
+	void warnsOnlyWhenGeneratingAnEphemeralKeyAndNeverLogsKeyMaterial() {
 		ListAppender<ILoggingEvent> appender = new ListAppender<>();
 		appender.start();
 		Logger logger = (Logger) LoggerFactory.getLogger(JwtService.class);
 		logger.addAppender(appender);
 		try {
-			new JwtService(SECRET, "PT8H", DEVELOPMENT_SECRET, clock);
+			new JwtService(SECRET, "PT8H", clock);
 			assertThat(appender.list).isEmpty();
 
-			new JwtService(DEVELOPMENT_SECRET, "PT8H", DEVELOPMENT_SECRET, clock);
+			new JwtService("", "PT8H", clock);
 			assertThat(appender.list).singleElement()
 				.satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.WARN))
-				.satisfies(event -> assertThat(event.getFormattedMessage()).contains("app.jwt.secret"));
-			assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains(DEVELOPMENT_SECRET));
+				.satisfies(event -> assertThat(event.getFormattedMessage()).contains("app.jwt.secret"))
+				.satisfies(event -> assertThat(event.getFormattedMessage()).contains("restart"))
+				.satisfies(event -> assertThat(event.getFormattedMessage())
+					.doesNotMatch("(?s).*[A-Za-z0-9+/]{24,}={0,2}.*"));
 		}
 		finally {
 			logger.detachAppender(appender);
 		}
+	}
+
+	@Test
+	void doesNotWarnWhenTheKeyIsBlankRatherThanNull() {
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		Logger logger = (Logger) LoggerFactory.getLogger(JwtService.class);
+		logger.addAppender(appender);
+		try {
+			new JwtService("   ", "PT8H", clock);
+			assertThat(appender.list).singleElement()
+				.satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.WARN));
+		}
+		finally {
+			logger.detachAppender(appender);
+		}
+	}
+
+	@Test
+	void anExplicitlyConfiguredKeyIsUsedVerbatimAcrossInstances() {
+		JwtService first = new JwtService(SECRET, "PT8H", clock);
+		JwtService second = new JwtService(SECRET, "PT8H", clock);
+
+		String token = first.issue("admin", UserRole.ADMIN).token();
+
+		assertThat(second.parse(token)).contains(new ParsedToken("admin", UserRole.ADMIN));
+	}
+
+	@Test
+	void twoInstancesWithoutAConfiguredKeyGenerateDifferentKeysThatRejectEachOthersTokens() {
+		JwtService first = new JwtService("", "PT8H", clock);
+		JwtService second = new JwtService("", "PT8H", clock);
+
+		String tokenFromFirst = first.issue("admin", UserRole.ADMIN).token();
+
+		assertThat(first.parse(tokenFromFirst)).contains(new ParsedToken("admin", UserRole.ADMIN));
+		assertThat(second.parse(tokenFromFirst)).isEmpty();
 	}
 
 	@Test
@@ -90,7 +128,7 @@ class JwtServiceTest {
 	void parsingATokenSignedWithADifferentSecretReturnsEmpty() {
 		JwtService otherService = new JwtService(
 				Base64.getEncoder().encodeToString("a-completely-different-256-bit-secret-value!".getBytes()), "PT8H",
-				DEVELOPMENT_SECRET, clock);
+				clock);
 		String tokenFromOtherSecret = otherService.issue("admin", UserRole.ADMIN).token();
 
 		assertThat(jwtService.parse(tokenFromOtherSecret)).isEmpty();
@@ -128,7 +166,7 @@ class JwtServiceTest {
 	@Test
 	void parsingAnExpiredTokenReturnsEmpty() {
 		Clock past = Clock.fixed(fixedNow.minusSeconds(9 * 3600), ZoneOffset.UTC);
-		JwtService expiredIssuer = new JwtService(SECRET, "PT8H", DEVELOPMENT_SECRET, past);
+		JwtService expiredIssuer = new JwtService(SECRET, "PT8H", past);
 		String expiredToken = expiredIssuer.issue("admin", UserRole.ADMIN).token();
 
 		assertThat(jwtService.parse(expiredToken)).isEmpty();

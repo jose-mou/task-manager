@@ -14,8 +14,9 @@ import java.time.Clock;
  * Seeds the ADMIN account on first startup, when the {@code users} table is
  * empty (specs/service-registry-and-task-scoping.md, rule 4). Username and
  * password are overridable through configuration (environment-injectable);
- * the defaults apply when unset. Seeding never fails startup: any error here
- * is logged and swallowed.
+ * the defaults apply when unset. A seeding failure fails startup instead of
+ * booting an application with no admin account - the one state that makes
+ * the whole feature unusable, silently.
  */
 @Component
 public class UserSeeder implements ApplicationRunner {
@@ -53,7 +54,10 @@ public class UserSeeder implements ApplicationRunner {
 			log.info("Seeded the default ADMIN account '{}'", adminUsername);
 		}
 		catch (RuntimeException ex) {
-			log.warn("Skipping ADMIN account seeding: {}", ex.getMessage());
+			throw new IllegalStateException("Failed to seed the default ADMIN account '" + adminUsername + "': "
+					+ ex.getMessage() + ". Check app.admin.username/app.admin.password (or the "
+					+ "ADMIN_USERNAME/ADMIN_PASSWORD environment variables) and database connectivity, then restart.",
+					ex);
 		}
 	}
 
