@@ -1,7 +1,11 @@
 -- specs/service-registry-and-task-scoping.md: tasks.service (free text)
--- becomes a NOT NULL service_id FK. The database holds no data at this point
--- in the project, so the column is replaced outright instead of migrating
--- existing rows.
+-- becomes a NOT NULL service_id FK. No environment holds task data worth
+-- keeping, and a free-text service name cannot be mapped to a registered
+-- service, so any pre-existing row is dropped before ownership becomes
+-- mandatory. Without this, the NOT NULL column below fails on a database that
+-- already ran V1 (a fresh Testcontainers instance never hits that path).
+DELETE FROM tasks;
+
 ALTER TABLE tasks DROP COLUMN service;
 
 ALTER TABLE tasks
