@@ -1,10 +1,14 @@
 package com.taskmanager.task;
 
+import com.taskmanager.service.ServiceAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -32,8 +36,18 @@ public class Task {
 	@Column(name = "modification_date", nullable = false)
 	private Instant modificationDate;
 
-	@Column(nullable = false)
-	private String service;
+	/**
+	 * EAGER rather than the usual LAZY default: every {@code Task} response
+	 * needs the owning service's name (api/openapi.yaml, {@code Task.service}),
+	 * and {@code spring.jpa.open-in-view=false} means there is no Hibernate
+	 * session left open by the time {@link com.taskmanager.task.web.TaskResponse}
+	 * is built in the web layer to lazily initialize it. Hibernate resolves a
+	 * {@code @ManyToOne} EAGER association with a SQL join, not a second
+	 * query, so this does not introduce an N+1.
+	 */
+	@ManyToOne(fetch = FetchType.EAGER)
+	@JoinColumn(name = "service_id", nullable = false)
+	private ServiceAccount owningService;
 
 	@Column
 	private String description;
@@ -58,14 +72,14 @@ public class Task {
 		// required by JPA
 	}
 
-	private Task(UUID id, String name, Instant creationDate, Instant modificationDate, String service,
+	private Task(UUID id, String name, Instant creationDate, Instant modificationDate, ServiceAccount owningService,
 			String description, TaskStatus status, String script, String cronExpr, Integer maxExecutions,
 			boolean scheduled) {
 		this.id = id;
 		this.name = name;
 		this.creationDate = creationDate;
 		this.modificationDate = modificationDate;
-		this.service = service;
+		this.owningService = owningService;
 		this.description = description;
 		this.status = status;
 		this.script = script;
@@ -75,17 +89,17 @@ public class Task {
 	}
 
 	/** Creates a brand-new task: generates its id and sets creationDate == modificationDate. */
-	public static Task create(String name, String service, String description, TaskStatus status, String script,
-			String cronExpr, Integer maxExecutions, boolean scheduled, Instant now) {
-		return new Task(UUID.randomUUID(), name, now, now, service, description, status, script, cronExpr,
+	public static Task create(String name, ServiceAccount owningService, String description, TaskStatus status,
+			String script, String cronExpr, Integer maxExecutions, boolean scheduled, Instant now) {
+		return new Task(UUID.randomUUID(), name, now, now, owningService, description, status, script, cronExpr,
 				maxExecutions, scheduled);
 	}
 
 	/** Applies the given field values, preserving creationDate and bumping modificationDate. */
-	public void applyUpdate(String name, String service, String description, TaskStatus status, String script,
-			String cronExpr, Integer maxExecutions, boolean scheduled, Instant now) {
+	public void applyUpdate(String name, ServiceAccount owningService, String description, TaskStatus status,
+			String script, String cronExpr, Integer maxExecutions, boolean scheduled, Instant now) {
 		this.name = name;
-		this.service = service;
+		this.owningService = owningService;
 		this.description = description;
 		this.status = status;
 		this.script = script;
@@ -111,8 +125,8 @@ public class Task {
 		return modificationDate;
 	}
 
-	public String getService() {
-		return service;
+	public ServiceAccount getOwningService() {
+		return owningService;
 	}
 
 	public String getDescription() {

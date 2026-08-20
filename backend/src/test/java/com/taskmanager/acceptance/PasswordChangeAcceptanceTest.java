@@ -1,7 +1,10 @@
 package com.taskmanager.acceptance;
 
 import com.taskmanager.TestcontainersConfiguration;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -36,17 +39,23 @@ import static org.springframework.boot.test.context.SpringBootTest.WebEnvironmen
  * brand-new context (and container) for whichever test runs next, so this permanent
  * mutation - the admin/admin default cannot be restored through the API because "admin"
  * is shorter than the required 8 characters - never leaks into unrelated tests.
+ *
+ * The same mutation is irreversible within this class too, so the methods are explicitly
+ * ordered: the non-destructive wrong-password case runs first, while the seeded
+ * admin/admin credentials still authenticate.
  */
 @SpringBootTest(webEnvironment = RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @Import(TestcontainersConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PasswordChangeAcceptanceTest {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
 
 	@Test
+	@Order(2)
 	void changingOwnPasswordWithTheCorrectCurrentPasswordInvalidatesTheOldOneAndActivatesTheNewOne() {
 		String token = adminToken(restTemplate);
 		String newPassword = "sup3r-s3cret-pass";
@@ -68,6 +77,7 @@ class PasswordChangeAcceptanceTest {
 	}
 
 	@Test
+	@Order(1)
 	void changingOwnPasswordWithWrongCurrentPasswordReturns400NamingCurrentPassword() {
 		String token = adminToken(restTemplate);
 

@@ -51,3 +51,51 @@ export interface ValidationErrorResponse {
 export interface ErrorResponse {
   message: string
 }
+
+// --- Authentication & users -------------------------------------------------
+
+export type UserRole = 'ADMIN' | 'USER'
+
+/** Payload accepted by POST /api/auth/login. */
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+/** Response of POST /api/auth/login. */
+export interface LoginResponse {
+  token: string
+  expiresAt: string
+  role: UserRole
+}
+
+/** Payload accepted by POST /api/users/me/password. */
+export interface PasswordChangeRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+// --- Service registry ---------------------------------------------------
+
+/** Payload accepted by POST /api/services and PUT /api/services/{id}. */
+export interface ServiceRequest {
+  name: string
+}
+
+/** A registered service, without any credential value. */
+export interface Service {
+  id: string
+  name: string
+  creationDate: string
+  modificationDate: string
+}
+
+export type ServiceList = Service[]
+
+/** One-time credential payload returned by register and rotate. */
+export interface ServiceCredentials {
+  id: string
+  name: string
+  apiKey: string
+  apiSecret: string
+}

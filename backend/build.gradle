@@ -21,9 +21,19 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-flyway'
 	implementation 'org.flywaydb:flyway-core'
 	implementation 'org.flywaydb:flyway-database-postgresql'
+	// Stateless HS256 JWT issuing/parsing for the UI's bearerAuth identity
+	// (specs/service-registry-and-task-scoping.md, rule 3). A dedicated JWT
+	// library is used instead of spring-security-oauth2-resource-server, which
+	// is built around externally-issued tokens (JWK sets / issuer discovery)
+	// and is disproportionate for a single service that both issues and
+	// verifies its own symmetric-key tokens.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
@@ -32,10 +42,11 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
-	// Test-only: used exclusively to seed a USER-role account's password hash directly
-	// via JDBC in acceptance-test fixtures (specs/service-registry-and-task-scoping.md
-	// has no user-creation endpoint - see final report for details). Does not add any
-	// Spring Security auto-configuration or filter chain to the application itself.
+	// Test-only: used to seed a USER-role account's password hash directly via
+	// JDBC in acceptance-test fixtures and to hash passwords in unit tests.
+	// spring-boot-starter-security already brings this transitively for main
+	// code (BCryptPasswordEncoder); declared explicitly here too so test code
+	// keeps compiling if that transitive dependency ever changes.
 	testImplementation 'org.springframework.security:spring-security-crypto'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

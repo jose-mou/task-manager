@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createTask, getTask, updateTask } from '../api/client'
-import { ApiConflictError, ApiNotFoundError, ApiValidationError } from '../api/errors'
-import type { FieldError, Task, TaskRequest } from '../api/types'
+import { listServices } from '../api/servicesClient'
+import {
+  ApiConflictError,
+  ApiForbiddenError,
+  ApiNotFoundError,
+  ApiUnauthorizedError,
+  ApiValidationError,
+} from '../api/errors'
+import type { FieldError, Service, Task, TaskRequest } from '../api/types'
 import { TaskForm, type TaskFormValues } from '../components/organisms/TaskForm'
+import { useAuth } from '../auth/AuthContext'
 
 function toInitialValues(task: Task): Partial<TaskFormValues> {
   return {
@@ -22,13 +30,36 @@ export function TaskFormPage() {
   const { id } = useParams<{ id: string }>()
   const isEdit = id !== undefined
   const navigate = useNavigate()
+  const { logout } = useAuth()
 
+  const [services, setServices] = useState<Service[]>()
   const [initialValues, setInitialValues] = useState<Partial<TaskFormValues>>()
   const [notFound, setNotFound] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>()
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    listServices()
+      .then((result) => {
+        if (!cancelled) setServices(result)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        if (error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) {
+          logout()
+          navigate('/login')
+        } else {
+          setLoadError('Could not load the services.')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!isEdit || !id) return
@@ -63,6 +94,9 @@ export function TaskFormPage() {
         setFieldErrors(error.fieldErrors)
       } else if (error instanceof ApiConflictError) {
         setFieldErrors([{ field: 'name', message: error.message }])
+      } else if (error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) {
+        logout()
+        navigate('/login')
       } else {
         setSubmitError('Could not save the task.')
       }
@@ -80,11 +114,11 @@ export function TaskFormPage() {
     )
   }
 
-  if (isEdit && !initialValues) {
+  if ((isEdit && !initialValues) || !services) {
     return (
       <section>
-        <h1>Edit task</h1>
-        {loadError ? <p role="alert">{loadError}</p> : <p>Loading task…</p>}
+        <h1>{isEdit ? 'Edit task' : 'New task'}</h1>
+        {loadError ? <p role="alert">{loadError}</p> : <p>Loading…</p>}
       </section>
     )
   }
@@ -97,6 +131,7 @@ export function TaskFormPage() {
         initialValues={initialValues}
         fieldErrors={fieldErrors}
         submitting={submitting}
+        services={services}
         onSubmit={handleSubmit}
       />
     </section>

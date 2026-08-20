@@ -54,10 +54,33 @@ describe('TaskTable', () => {
     expect(within(rows[2]).getByText('Oldest task')).toBeInTheDocument()
   })
 
-  it('links each row to its edit screen', () => {
+  it('links each row name to its detail screen', () => {
     render(
       <MemoryRouter>
         <TaskTable tasks={[task({ id: 'task-42' })]} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Nightly backup' })).toHaveAttribute(
+      'href',
+      '/tasks/task-42',
+    )
+  })
+
+  it('hides the edit link for a non-admin', () => {
+    render(
+      <MemoryRouter>
+        <TaskTable tasks={[task({ id: 'task-42' })]} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByRole('link', { name: /edit/i })).not.toBeInTheDocument()
+  })
+
+  it('links each row to its edit screen for an admin', () => {
+    render(
+      <MemoryRouter>
+        <TaskTable tasks={[task({ id: 'task-42' })]} isAdmin />
       </MemoryRouter>,
     )
 

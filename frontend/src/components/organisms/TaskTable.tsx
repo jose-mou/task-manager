@@ -3,9 +3,11 @@ import type { Task } from '../../api/types'
 
 interface TaskTableProps {
   tasks: Task[]
+  /** Edit links are only rendered for an ADMIN; anonymous/USER get read-only rows. */
+  isAdmin?: boolean
 }
 
-export function TaskTable({ tasks }: TaskTableProps) {
+export function TaskTable({ tasks, isAdmin = false }: TaskTableProps) {
   if (tasks.length === 0) {
     return <p>No tasks yet.</p>
   }
@@ -19,20 +21,24 @@ export function TaskTable({ tasks }: TaskTableProps) {
           <th>Status</th>
           <th>Scheduled</th>
           <th>Modification date</th>
-          <th aria-label="Actions" />
+          {isAdmin && <th aria-label="Actions" />}
         </tr>
       </thead>
       <tbody>
         {tasks.map((task) => (
           <tr key={task.id}>
-            <td>{task.name}</td>
+            <td>
+              <Link to={`/tasks/${task.id}`}>{task.name}</Link>
+            </td>
             <td>{task.service}</td>
             <td>{task.status}</td>
             <td>{task.scheduled ? 'Yes' : 'No'}</td>
             <td>{task.modificationDate}</td>
-            <td>
-              <Link to={`/tasks/${task.id}/edit`}>Edit</Link>
-            </td>
+            {isAdmin && (
+              <td>
+                <Link to={`/tasks/${task.id}/edit`}>Edit</Link>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>

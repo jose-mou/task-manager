@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { listTasks } from '../api/client'
 import type { Task } from '../api/types'
 import { TaskTable } from '../components/organisms/TaskTable'
+import { useAuth } from '../auth/AuthContext'
 
 export function TaskListPage() {
+  const { isAdmin } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const serviceFilter = searchParams.get('service') ?? ''
+
   const [tasks, setTasks] = useState<Task[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    listTasks()
+    setTasks(null)
+    listTasks(serviceFilter || undefined)
       .then((result) => {
         if (!cancelled) setTasks(result)
       })
@@ -20,18 +26,32 @@ export function TaskListPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [serviceFilter])
+
+  function handleFilterChange(value: string) {
+    if (value) setSearchParams({ service: value })
+    else setSearchParams({})
+  }
 
   return (
     <section>
       <header>
         <h1>Tasks</h1>
-        <Link to="/tasks/new">New task</Link>
+        {isAdmin && <Link to="/tasks/new">New task</Link>}
       </header>
+
+      <div className="form-field">
+        <label htmlFor="service-filter">Filter by service</label>
+        <input
+          id="service-filter"
+          value={serviceFilter}
+          onChange={(e) => handleFilterChange(e.target.value)}
+        />
+      </div>
 
       {error && <p role="alert">{error}</p>}
       {!error && tasks === null && <p>Loading tasks…</p>}
-      {!error && tasks !== null && <TaskTable tasks={tasks} />}
+      {!error && tasks !== null && <TaskTable tasks={tasks} isAdmin={isAdmin} />}
     </section>
   )
 }

@@ -14,10 +14,16 @@ import jakarta.validation.constraints.NotBlank;
  * enforces the same rule declaratively. {@code scheduled} stays a {@link Boolean}
  * for the same reason: {@link ValidScheduledCron} reads it to decide whether
  * {@code cronExpr} is required.
+ *
+ * {@code service} carries no Bean Validation annotation: whether it is
+ * required at all depends on the caller's identity (required and must name a
+ * registered service for an ADMIN JWT, ignored for service credentials -
+ * specs/service-registry-and-task-scoping.md, rules 9-10), which a
+ * declarative constraint cannot see. That rule is enforced by
+ * {@link com.taskmanager.task.TaskOwnershipResolver}.
  */
 @ValidScheduledCron
-public record TaskRequest(@NotBlank(message = "must not be blank") String name,
-		@NotBlank(message = "must not be blank") String service, String description,
+public record TaskRequest(@NotBlank(message = "must not be blank") String name, String service, String description,
 		@ValidTaskStatus String status, @NotBlank(message = "must not be blank") String script, String cronExpr,
 		@Min(value = 1, message = "must be greater than or equal to 1") Integer maxExecutions, Boolean scheduled) {
 }
