@@ -13,8 +13,8 @@ public record TaskResponse(UUID id, String name, Instant creationDate, Instant m
 
 	public static TaskResponse from(Task task) {
 		return new TaskResponse(task.getId(), task.getName(), task.getCreationDate(), task.getModificationDate(),
-				task.getService(), task.getDescription(), task.getStatus(), task.getScript(), task.getCronExpr(),
-				task.getMaxExecutions(), task.isScheduled());
+				task.getOwningService().getName(), task.getDescription(), task.getStatus(), task.getScript(),
+				task.getCronExpr(), task.getMaxExecutions(), task.isScheduled());
 	}
 
 }

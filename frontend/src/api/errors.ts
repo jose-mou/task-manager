@@ -26,3 +26,19 @@ export class ApiNotFoundError extends Error {
     this.name = 'ApiNotFoundError'
   }
 }
+
+/** Thrown when the API returns 401 (missing, malformed or expired credentials). */
+export class ApiUnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApiUnauthorizedError'
+  }
+}
+
+/** Thrown when the API returns 403 (authenticated but not allowed). */
+export class ApiForbiddenError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApiForbiddenError'
+  }
+}

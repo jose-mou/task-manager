@@ -21,6 +21,11 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/taskmanager
       DB_USER: taskmanager
       DB_PASSWORD: taskmanager
+      # Local development only, on a par with the hardcoded database password
+      # above: it keeps issued JWTs valid across backend restarts. Anyone who
+      # can read this file can forge an ADMIN token, so any deployed
+      # environment must export its own JWT_SECRET, which overrides this.
+      JWT_SECRET: ${JWT_SECRET:-fop8YoLReSJVPHUku4LwBS6Kuouvm6I66/qAz0Taefw=}
     ports:
       - "8080:8080"
     depends_on:

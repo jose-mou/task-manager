@@ -58,12 +58,22 @@ class TaskRequestValidationTest {
 		assertThat(fieldsOf(validator.validate(request))).contains("name", "maxExecutions");
 	}
 
+	/**
+	 * {@code service} carries no Bean Validation annotation: whether it is
+	 * required at all depends on the caller's identity (ADMIN JWT vs service
+	 * credentials), which only {@link com.taskmanager.task.TaskOwnershipResolver}
+	 * can decide - see {@link TaskControllerTest} and the acceptance tests for
+	 * that behaviour.
+	 */
 	@Test
-	void blankServiceIsReported() {
-		TaskRequest request = new TaskRequest("Nightly backup", " ", null, null, "/opt/scripts/backup.sh", null,
+	void aBlankOrMissingServiceIsNotItselfABeanValidationViolation() {
+		TaskRequest blank = new TaskRequest("Nightly backup", " ", null, null, "/opt/scripts/backup.sh", null, null,
+				null);
+		TaskRequest missing = new TaskRequest("Nightly backup", null, null, null, "/opt/scripts/backup.sh", null,
 				null, null);
 
-		assertThat(fieldsOf(validator.validate(request))).contains("service");
+		assertThat(fieldsOf(validator.validate(blank))).doesNotContain("service");
+		assertThat(fieldsOf(validator.validate(missing))).doesNotContain("service");
 	}
 
 	@Test

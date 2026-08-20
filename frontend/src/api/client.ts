@@ -1,32 +1,11 @@
-import type {
-  ErrorResponse,
-  Task,
-  TaskList,
-  TaskRequest,
-  ValidationErrorResponse,
-} from './types'
-import { ApiConflictError, ApiNotFoundError, ApiValidationError } from './errors'
+import type { Task, TaskList, TaskRequest } from './types'
+import { authHeaders, handleErrorResponse } from './http'
 
 const BASE_URL = '/api/tasks'
 
-async function handleErrorResponse(response: Response): Promise<never> {
-  if (response.status === 400) {
-    const body = (await response.json()) as ValidationErrorResponse
-    throw new ApiValidationError(body.message, body.errors)
-  }
-  if (response.status === 404) {
-    const body = (await response.json()) as ErrorResponse
-    throw new ApiNotFoundError(body.message)
-  }
-  if (response.status === 409) {
-    const body = (await response.json()) as ErrorResponse
-    throw new ApiConflictError(body.message)
-  }
-  throw new Error(`Unexpected API error: ${response.status}`)
-}
-
-export async function listTasks(): Promise<TaskList> {
-  const response = await fetch(BASE_URL)
+export async function listTasks(service?: string): Promise<TaskList> {
+  const url = service ? `${BASE_URL}?service=${encodeURIComponent(service)}` : BASE_URL
+  const response = await fetch(url)
   if (!response.ok) return handleErrorResponse(response)
   return (await response.json()) as TaskList
 }
@@ -40,7 +19,7 @@ export async function getTask(id: string): Promise<Task> {
 export async function createTask(payload: TaskRequest): Promise<Task> {
   const response = await fetch(BASE_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(payload),
   })
   if (!response.ok) return handleErrorResponse(response)
@@ -50,7 +29,7 @@ export async function createTask(payload: TaskRequest): Promise<Task> {
 export async function updateTask(id: string, payload: TaskRequest): Promise<Task> {
   const response = await fetch(`${BASE_URL}/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(payload),
   })
   if (!response.ok) return handleErrorResponse(response)

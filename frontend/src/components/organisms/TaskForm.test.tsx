@@ -2,10 +2,26 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TaskForm } from './TaskForm'
+import type { Service } from '../../api/types'
+
+const SERVICES: Service[] = [
+  {
+    id: 'svc-1',
+    name: 'backup-service',
+    creationDate: '2026-08-18T09:00:00Z',
+    modificationDate: '2026-08-18T09:00:00Z',
+  },
+  {
+    id: 'svc-2',
+    name: 'reporting-service',
+    creationDate: '2026-08-19T08:30:00Z',
+    modificationDate: '2026-08-19T08:30:00Z',
+  },
+]
 
 describe('TaskForm', () => {
   it('renders every editable field', () => {
-    render(<TaskForm onSubmit={vi.fn()} />)
+    render(<TaskForm services={SERVICES} onSubmit={vi.fn()} />)
 
     expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/service/i)).toBeInTheDocument()
@@ -20,9 +36,17 @@ describe('TaskForm', () => {
     expect(options).toEqual(['CREATED', 'RUNNING', 'COMPLETED', 'CANCELED'])
   })
 
+  it('feeds the service select from the given registered services', () => {
+    render(<TaskForm services={SERVICES} onSubmit={vi.fn()} />)
+
+    const serviceSelect = screen.getByLabelText(/service/i) as HTMLSelectElement
+    const options = Array.from(serviceSelect.options).map((o) => o.value)
+    expect(options).toEqual(['', 'backup-service', 'reporting-service'])
+  })
+
   it('disables cronExpr and maxExecutions until scheduled is checked', async () => {
     const user = userEvent.setup()
-    render(<TaskForm onSubmit={vi.fn()} />)
+    render(<TaskForm services={SERVICES} onSubmit={vi.fn()} />)
 
     expect(screen.getByLabelText(/cron/i)).toBeDisabled()
     expect(screen.getByLabelText(/max executions/i)).toBeDisabled()
@@ -36,10 +60,10 @@ describe('TaskForm', () => {
   it('submits the filled-in fields as a TaskRequest payload', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
-    render(<TaskForm onSubmit={onSubmit} />)
+    render(<TaskForm services={SERVICES} onSubmit={onSubmit} />)
 
     await user.type(screen.getByLabelText(/name/i), 'Report generation')
-    await user.type(screen.getByLabelText(/service/i), 'reporting-service')
+    await user.selectOptions(screen.getByLabelText(/service/i), 'reporting-service')
     await user.type(screen.getByLabelText(/^script/i), '/opt/scripts/report.sh')
     await user.click(screen.getByRole('button', { name: /save/i }))
 
@@ -57,10 +81,10 @@ describe('TaskForm', () => {
   it('includes cronExpr and maxExecutions when scheduled is checked', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
-    render(<TaskForm onSubmit={onSubmit} />)
+    render(<TaskForm services={SERVICES} onSubmit={onSubmit} />)
 
     await user.type(screen.getByLabelText(/name/i), 'Nightly backup')
-    await user.type(screen.getByLabelText(/service/i), 'backup-service')
+    await user.selectOptions(screen.getByLabelText(/service/i), 'backup-service')
     await user.type(screen.getByLabelText(/^script/i), '/opt/scripts/backup.sh')
     await user.click(screen.getByLabelText(/scheduled/i))
     await user.type(screen.getByLabelText(/cron/i), '0 0 2 * * *')
@@ -79,10 +103,11 @@ describe('TaskForm', () => {
   it('pre-fills fields from initialValues for editing', () => {
     render(
       <TaskForm
+        services={SERVICES}
         onSubmit={vi.fn()}
         initialValues={{
           name: 'Existing task',
-          service: 'existing-service',
+          service: 'backup-service',
           script: '/opt/scripts/existing.sh',
           status: 'COMPLETED',
           scheduled: true,
@@ -93,6 +118,7 @@ describe('TaskForm', () => {
     )
 
     expect(screen.getByLabelText(/name/i)).toHaveValue('Existing task')
+    expect(screen.getByLabelText(/service/i)).toHaveValue('backup-service')
     expect(screen.getByLabelText(/status/i)).toHaveValue('COMPLETED')
     expect(screen.getByLabelText(/scheduled/i)).toBeChecked()
     expect(screen.getByLabelText(/cron/i)).toHaveValue('0 0 2 * * *')
@@ -102,6 +128,7 @@ describe('TaskForm', () => {
   it('shows inline field errors mapped from the API response', () => {
     render(
       <TaskForm
+        services={SERVICES}
         onSubmit={vi.fn()}
         fieldErrors={[
           { field: 'name', message: 'must not be blank' },
@@ -119,6 +146,7 @@ describe('TaskForm', () => {
   it('associates every field error with its own control', () => {
     render(
       <TaskForm
+        services={SERVICES}
         onSubmit={vi.fn()}
         fieldErrors={[
           { field: 'description', message: 'description is invalid' },
@@ -141,10 +169,11 @@ describe('TaskForm', () => {
     const onSubmit = vi.fn()
     render(
       <TaskForm
+        services={SERVICES}
         onSubmit={onSubmit}
         initialValues={{
           name: 'Cache warmup',
-          service: 'cache-service',
+          service: 'backup-service',
           script: '/opt/scripts/warmup.sh',
           scheduled: false,
           cronExpr: '0 0 2 * * *',
@@ -167,16 +196,17 @@ describe('TaskForm', () => {
   it('surfaces the 409 duplicate-name error on the name field', () => {
     render(
       <TaskForm
+        services={SERVICES}
         onSubmit={vi.fn()}
         fieldErrors={[
-          { field: 'name', message: "A task with name 'backup' already exists" },
+          { field: 'name', message: "A task with name 'backup' already exists for service 'backup-service'" },
         ]}
       />,
     )
 
     const nameInput = screen.getByLabelText(/name/i)
     expect(nameInput).toHaveAccessibleDescription(
-      "A task with name 'backup' already exists",
+      "A task with name 'backup' already exists for service 'backup-service'",
     )
   })
 })

@@ -2,6 +2,10 @@ package com.taskmanager.task.web;
 
 import com.taskmanager.task.DuplicateTaskNameException;
 import com.taskmanager.task.TaskNotFoundException;
+import com.taskmanager.task.TaskRequestValidationException;
+import com.taskmanager.web.ErrorResponse;
+import com.taskmanager.web.FieldError;
+import com.taskmanager.web.ValidationErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -25,8 +29,8 @@ public class TaskExceptionHandler {
 	 * {@code errors} list deterministic: Bean Validation does not guarantee the
 	 * order in which it reports violations from several constraints.
 	 */
-	private static final List<String> FIELD_ORDER = List.of("name", "service", "description", "status", "script",
-			"cronExpr", "maxExecutions", "scheduled");
+	private static final List<String> FIELD_ORDER = List.of("name", "description", "status", "script", "cronExpr",
+			"maxExecutions", "scheduled");
 
 	/**
 	 * Maps every field-level Bean Validation failure (declarative constraints on
@@ -54,6 +58,16 @@ public class TaskExceptionHandler {
 	@ExceptionHandler(DuplicateTaskNameException.class)
 	public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateTaskNameException ex) {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
+	}
+
+	/**
+	 * The {@code service} field is valid JSON-shape-wise but wrong given the
+	 * caller's identity (blank/missing for an ADMIN caller, or unregistered);
+	 * see {@link com.taskmanager.task.TaskOwnershipResolver}.
+	 */
+	@ExceptionHandler(TaskRequestValidationException.class)
+	public ResponseEntity<ValidationErrorResponse> handleOwnershipValidation(TaskRequestValidationException ex) {
+		return ResponseEntity.badRequest().body(ValidationErrorResponse.of(ex.error()));
 	}
 
 	/**

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { FieldError, TaskRequest, TaskStatus } from '../../api/types'
+import type { FieldError, Service, TaskRequest, TaskStatus } from '../../api/types'
 import { TASK_STATUSES } from '../../api/types'
 import { FormField } from '../molecules/FormField'
 import { Input } from '../atoms/Input'
@@ -32,6 +32,8 @@ interface TaskFormProps {
   initialValues?: Partial<TaskFormValues>
   fieldErrors?: FieldError[]
   submitting?: boolean
+  /** Registered services feeding the service select (GET /api/services). */
+  services: Service[]
   onSubmit: (payload: TaskRequest) => void
 }
 
@@ -39,6 +41,7 @@ export function TaskForm({
   initialValues,
   fieldErrors,
   submitting = false,
+  services,
   onSubmit,
 }: TaskFormProps) {
   const [values, setValues] = useState<TaskFormValues>({
@@ -86,12 +89,21 @@ export function TaskForm({
 
       <FormField htmlFor="service" label="Service" error={errorFor('service')}>
         {(control) => (
-          <Input
+          <Select
             {...control}
             required
             value={values.service}
             onChange={(e) => update({ service: e.target.value })}
-          />
+          >
+            <option value="" disabled>
+              Select a service…
+            </option>
+            {services.map((service) => (
+              <option key={service.id} value={service.name}>
+                {service.name}
+              </option>
+            ))}
+          </Select>
         )}
       </FormField>
 
