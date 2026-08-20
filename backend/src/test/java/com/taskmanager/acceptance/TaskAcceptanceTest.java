@@ -1,6 +1,7 @@
 package com.taskmanager.acceptance;
 
 import com.taskmanager.TestcontainersConfiguration;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -21,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.taskmanager.acceptance.support.AcceptanceTestSupport.adminToken;
+import static com.taskmanager.acceptance.support.AcceptanceTestSupport.bearer;
+import static com.taskmanager.acceptance.support.AcceptanceTestSupport.registerNewService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
 
@@ -33,6 +37,12 @@ import static org.springframework.boot.test.context.SpringBootTest.WebEnvironmen
  * requests and responses are handled as plain maps/lists so these tests fail only
  * because the endpoints do not exist yet, never because of a compile-time
  * dependency on unimplemented production code.
+ *
+ * specs/service-registry-and-task-scoping.md, behaviour rule 10, keeps every one of
+ * these CRUD rules unchanged; what changed is authorization and how the owning
+ * service is resolved (behaviour rules 8-10 of that spec), so every write here now
+ * authenticates as ADMIN and targets a service registered up front in
+ * {@link #registerOwningServiceAsAdmin()}, exactly as the frozen contract requires.
  */
 @SpringBootTest(webEnvironment = RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -44,12 +54,23 @@ class TaskAcceptanceTest {
 	@Autowired
 	private TestRestTemplate restTemplate;
 
+	private HttpHeaders adminHeaders;
+	private String ownedService;
+
+	@BeforeEach
+	void registerOwningServiceAsAdmin() {
+		String admin = adminToken(restTemplate);
+		adminHeaders = bearer(admin);
+		Map<String, Object> registered = registerNewService(restTemplate, admin, "acceptance-service");
+		ownedService = (String) registered.get("name");
+	}
+
 	// ---- helpers -----------------------------------------------------
 
 	private Map<String, Object> minimalTaskPayload(String name) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("name", name);
-		body.put("service", "acceptance-service");
+		body.put("service", ownedService);
 		body.put("script", "/opt/scripts/acceptance.sh");
 		return body;
 	}
@@ -69,6 +90,7 @@ class TaskAcceptanceTest {
 	private ResponseEntity<Map<String, Object>> exchangeForObject(String url, HttpMethod method,
 			Map<String, Object> payload) {
 		HttpHeaders headers = new HttpHeaders();
+		headers.addAll(adminHeaders);
 		headers.setContentType(MediaType.APPLICATION_JSON);
 		HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 		return restTemplate.exchange(url, method, request, new ParameterizedTypeReference<Map<String, Object>>() {

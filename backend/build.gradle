@@ -32,6 +32,11 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	// Test-only: used exclusively to seed a USER-role account's password hash directly
+	// via JDBC in acceptance-test fixtures (specs/service-registry-and-task-scoping.md
+	// has no user-creation endpoint - see final report for details). Does not add any
+	// Spring Security auto-configuration or filter chain to the application itself.
+	testImplementation 'org.springframework.security:spring-security-crypto'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
