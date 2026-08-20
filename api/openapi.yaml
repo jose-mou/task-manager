@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
   title: Task Manager API
-  version: 1.0.0
+  version: 2.0.0
   description: |
     REST API of the task-manager application.
 
-    Covers the task catalogue: creating, reading, listing and fully updating
-    tasks together with their scheduling metadata.
+    Covers the task catalogue (creating, reading, listing and fully updating
+    tasks together with their scheduling metadata), the service registry with
+    its generated machine credentials, and UI user authentication.
 
     Conventions:
       - All endpoints live under `/api/`.
@@ -15,6 +16,16 @@ info:
         read-only and any client-supplied value is ignored.
       - Validation failures return a single `400` payload listing every
         offending field.
+
+    Identities:
+      - Machines authenticate with `serviceCredentials` (HTTP Basic, `apiKey` as
+        username and `apiSecret` as password) and may only write their own tasks.
+      - Humans authenticate with `bearerAuth` (JWT from `POST /api/auth/login`).
+        Only the `ADMIN` role may write; the `USER` role grants nothing beyond
+        anonymous read.
+      - Reading tasks is anonymous and unrestricted.
+      - Credentials are only ever transmitted over TLS and the `Authorization`
+        header value is never logged.
 servers:
   - url: http://localhost:8080
     description: Local backend
@@ -24,13 +35,29 @@ security: []
 tags:
   - name: Tasks
     description: Task catalogue management.
+  - name: Authentication
+    description: JWT login for UI users.
+  - name: Users
+    description: Self-service operations of the authenticated user.
+  - name: Services
+    description: Service registry and machine credentials.
 paths:
   /api/tasks:
     get:
       tags: [Tasks]
       operationId: listTasks
       summary: List all tasks
-      description: Returns every stored task ordered by `creationDate` descending (newest first).
+      description: |
+        Returns every stored task ordered by `creationDate` descending (newest first).
+
+        Anonymous and unrestricted: every task is readable whoever the owning
+        service is. Credentials are ignored when present, and are never required.
+
+        The optional `service` query parameter narrows the list to the tasks
+        owned by one service.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceNameFilter'
       responses:
         '200':
           description: The list of tasks, newest first.
@@ -75,8 +102,22 @@ paths:
                       cronExpr: null
                       maxExecutions: 1
                       scheduled: false
+                filteredByService:
+                  summary: Filtered with `?service=backup-service`
+                  value:
+                    - id: 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+                      name: Nightly backup
+                      creationDate: '2026-08-19T22:00:00Z'
+                      modificationDate: '2026-08-19T22:30:00Z'
+                      service: backup-service
+                      description: Full database dump uploaded to cold storage.
+                      status: RUNNING
+                      script: /opt/scripts/backup.sh
+                      cronExpr: 0 0 2 * * *
+                      maxExecutions: 30
+                      scheduled: true
                 empty:
-                  summary: No tasks stored yet
+                  summary: No tasks stored yet, or no task matches the filter
                   value: []
     post:
       tags: [Tasks]
@@ -86,6 +127,21 @@ paths:
         Creates a task. The server generates `id` and sets `creationDate` equal to
         `modificationDate`. Omitted optional fields default to `status=CREATED`,
         `scheduled=false` and `maxExecutions=null` (unlimited).
+
+        Authorization: an ADMIN JWT (`bearerAuth`) **or** a service's own
+        credentials (`serviceCredentials`). Anonymous callers get `401`; a valid
+        JWT whose role is `USER` gets `403`.
+
+        Owning service:
+          - With `serviceCredentials` the owner is derived from the credentials
+            and the payload's `service` field is ignored, whatever it contains.
+          - With an ADMIN JWT the payload's `service` field is required and must
+            name a registered service; otherwise `400` naming `service`.
+
+        `name` is unique case-insensitively per owning service; a conflict is `409`.
+      security:
+        - bearerAuth: []
+        - serviceCredentials: []
       requestBody:
         required: true
         content:
@@ -94,13 +150,12 @@ paths:
               $ref: '#/components/schemas/TaskRequest'
             examples:
               minimal:
-                summary: Only the required fields
+                summary: Only the required fields, sent with service credentials
                 value:
                   name: Report generation
-                  service: reporting-service
                   script: /opt/scripts/report.sh
-              scheduled:
-                summary: Scheduled task with a cron expression
+              adminScheduled:
+                summary: Scheduled task created by an ADMIN, naming the owning service
                 value:
                   name: Nightly backup
                   service: backup-service
@@ -119,7 +174,7 @@ paths:
                 $ref: '#/components/schemas/Task'
               examples:
                 created:
-                  summary: Task created from the minimal payload
+                  summary: Task created from the minimal payload by `reporting-service`
                   value:
                     id: 9c0a5d17-6b2e-4f10-8f4d-1a7c9e2b6d55
                     name: Report generation
@@ -134,6 +189,10 @@ paths:
                     scheduled: false
         '400':
           $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/DuplicateName'
   /api/tasks/{id}:
@@ -143,6 +202,10 @@ paths:
       tags: [Tasks]
       operationId: getTask
       summary: Fetch a single task
+      description: |
+        Anonymous and unrestricted: the task is readable whoever the owning
+        service is. Credentials are ignored when present. An unknown id is `404`.
+      security: []
       responses:
         '200':
           description: The requested task.
@@ -176,6 +239,23 @@ paths:
         to their defaults (`status=CREATED`, `scheduled=false`, `maxExecutions=null`),
         exactly as on create. `creationDate` is preserved and `modificationDate` is
         set to the current instant.
+
+        Authorization: an ADMIN JWT (`bearerAuth`) **or** a service's own
+        credentials (`serviceCredentials`). Anonymous callers get `401`; a valid
+        JWT whose role is `USER` gets `403`.
+
+        Owning service:
+          - With `serviceCredentials` the payload's `service` field is ignored and
+            updating a task owned by another service returns `403` with the task
+            unchanged.
+          - With an ADMIN JWT the payload's `service` field is required and must
+            name a registered service (otherwise `400` naming `service`); it may
+            move the task to a different service.
+
+        `name` is unique case-insensitively per owning service; a conflict is `409`.
+      security:
+        - bearerAuth: []
+        - serviceCredentials: []
       requestBody:
         required: true
         content:
@@ -184,10 +264,20 @@ paths:
               $ref: '#/components/schemas/TaskRequest'
             examples:
               completed:
-                summary: Update fields and mark the task as completed
+                summary: Update fields and mark the task as completed (ADMIN JWT)
                 value:
                   name: Nightly backup
                   service: backup-service
+                  description: Full database dump uploaded to cold storage.
+                  status: COMPLETED
+                  script: /opt/scripts/backup-v2.sh
+                  cronExpr: 0 0 2 * * *
+                  maxExecutions: 30
+                  scheduled: true
+              ownedByCaller:
+                summary: Update sent with the owning service's credentials
+                value:
+                  name: Nightly backup
                   description: Full database dump uploaded to cold storage.
                   status: COMPLETED
                   script: /opt/scripts/backup-v2.sh
@@ -218,11 +308,371 @@ paths:
                     scheduled: true
         '400':
           $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/TaskNotFound'
         '409':
           $ref: '#/components/responses/DuplicateName'
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Exchange username and password for a JWT
+      description: |
+        Anonymous endpoint. On success it returns a stateless HS256 JWT valid for
+        8 hours; there is no refresh token and no revocation. The token is sent
+        back on later calls as `Authorization: Bearer <token>`.
+
+        On first startup, when the `users` table is empty, an ADMIN user
+        `admin` / `admin` is seeded (both values overridable through configuration).
+
+        Wrong username or password is `401`; the response never distinguishes
+        which of the two was wrong.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              seededAdmin:
+                summary: The seeded administrator
+                value:
+                  username: admin
+                  password: admin
+      responses:
+        '200':
+          description: Authentication succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              examples:
+                admin:
+                  summary: Token issued to the seeded administrator
+                  value:
+                    token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJBRE1JTiJ9.5m0Yy8Qw3xVQd1kZ2m9Rz4nGf7pJcT0aH6bX8sLuE9M
+                    expiresAt: '2026-08-20T15:05:12Z'
+                    role: ADMIN
+        '401':
+          description: Unknown username or wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                badCredentials:
+                  summary: Wrong credentials
+                  value:
+                    message: Invalid username or password
+  /api/users/me/password:
+    post:
+      tags: [Users]
+      operationId: changeOwnPassword
+      summary: Change the authenticated user's own password
+      description: |
+        Available to any authenticated user, whatever their role. The password is
+        always the caller's own; no user id is accepted and no administrator can
+        change somebody else's password here.
+
+        `currentPassword` must match the stored one (`400` naming `currentPassword`)
+        and `newPassword` must be at least 8 characters and different from the
+        current one (`400` naming `newPassword`).
+
+        JWTs issued before the change stay valid until they expire. A password
+        change is never forced.
+
+        Only `bearerAuth` applies: service credentials identify a machine, which
+        has no password, and are rejected with `403`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+            examples:
+              change:
+                summary: Replace the seeded password
+                value:
+                  currentPassword: admin
+                  newPassword: sup3r-s3cret-pass
+      responses:
+        '204':
+          description: The password was changed. No response body.
+        '400':
+          description: |
+            The payload is invalid: `currentPassword` does not match, or
+            `newPassword` is blank, shorter than 8 characters or equal to the
+            current password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              examples:
+                wrongCurrentPassword:
+                  summary: The current password does not match
+                  value:
+                    message: Validation failed
+                    errors:
+                      - field: currentPassword
+                        message: does not match the current password
+                tooShort:
+                  summary: The new password is shorter than 8 characters
+                  value:
+                    message: Validation failed
+                    errors:
+                      - field: newPassword
+                        message: must be at least 8 characters long
+                unchanged:
+                  summary: The new password equals the current one
+                  value:
+                    message: Validation failed
+                    errors:
+                      - field: newPassword
+                        message: must be different from the current password
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            The caller is authenticated with service credentials, which have no
+            password to change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notAUser:
+                  summary: Service credentials cannot change a password
+                  value:
+                    message: Access denied
+  /api/services:
+    get:
+      tags: [Services]
+      operationId: listServices
+      summary: List the registered services
+      description: |
+        Requires an ADMIN JWT. The payload never contains `apiKey` or `apiSecret`:
+        credentials are only returned once, by registration and rotation.
+
+        Services are ordered by `name` ascending.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The registered services, without any credential value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceList'
+              examples:
+                twoServices:
+                  summary: Two registered services
+                  value:
+                    - id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+                      name: backup-service
+                      creationDate: '2026-08-18T09:00:00Z'
+                      modificationDate: '2026-08-18T09:00:00Z'
+                    - id: c4d92e18-3a76-4b55-9f80-2e7a1c6b5d33
+                      name: reporting-service
+                      creationDate: '2026-08-19T08:30:00Z'
+                      modificationDate: '2026-08-19T08:30:00Z'
+                empty:
+                  summary: No service registered yet
+                  value: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+    post:
+      tags: [Services]
+      operationId: registerService
+      summary: Register a service and issue its credentials
+      description: |
+        Requires an ADMIN JWT; service credentials are rejected with `403`.
+
+        Returns the one and only copy of the generated `apiKey` and `apiSecret`.
+        Each is 256 bits from a cryptographically secure RNG, base64url-encoded
+        without padding. The store keeps only a hex-encoded SHA-256 hash of the
+        secret, so no later response and no log line ever exposes it again.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+            examples:
+              register:
+                summary: Register the backup service
+                value:
+                  name: backup-service
+      responses:
+        '201':
+          description: The service was registered. The credentials are shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCredentials'
+              examples:
+                registered:
+                  summary: Fresh credentials for `backup-service`
+                  value:
+                    id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+                    name: backup-service
+                    apiKey: RnyeHtZ5IOgN-oBcMGGmfiscmSFZdvA-dyPRge5EXyA
+                    apiSecret: 13DDBdX0UGRYiyKkg1Gm_XOMpE8Q4nzJZ4Ok70uHciY
+        '400':
+          $ref: '#/components/responses/ServiceValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+  /api/services/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    put:
+      tags: [Services]
+      operationId: renameService
+      summary: Rename a service
+      description: |
+        Allowed to an ADMIN JWT **or** to that same service's own credentials.
+        Another service's credentials get `403`, a `USER`-role token gets `403`
+        and an anonymous caller gets `401`.
+
+        Renaming does not change the credentials and does not detach the tasks:
+        the tasks of the service keep pointing at it and their `service` field
+        reflects the new name.
+      security:
+        - bearerAuth: []
+        - serviceCredentials: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+            examples:
+              rename:
+                summary: New name of the service
+                value:
+                  name: backup-service-v2
+      responses:
+        '200':
+          description: The renamed service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+              examples:
+                renamed:
+                  summary: Service after the rename
+                  value:
+                    id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+                    name: backup-service-v2
+                    creationDate: '2026-08-18T09:00:00Z'
+                    modificationDate: '2026-08-20T07:05:12Z'
+        '400':
+          $ref: '#/components/responses/ServiceValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ServiceNotFound'
+    delete:
+      tags: [Services]
+      operationId: deleteService
+      summary: Delete a service and its tasks
+      description: |
+        Requires an ADMIN JWT; service credentials are rejected with `403`, even
+        for the service being deleted.
+
+        Deleting a service deletes every task it owns; this is the only way a
+        task is removed. The deleted credentials stop authenticating immediately.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: The service and its tasks were deleted. No response body.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AdminOnly'
+        '404':
+          $ref: '#/components/responses/ServiceNotFound'
+  /api/services/{id}/credentials:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    post:
+      tags: [Services]
+      operationId: rotateServiceCredentials
+      summary: Rotate the credentials of a service
+      description: |
+        Allowed to an ADMIN JWT **or** to that same service's own credentials.
+        Another service's credentials get `403`, a `USER`-role token gets `403`
+        and an anonymous caller gets `401`.
+
+        Returns a fresh `apiKey` / `apiSecret` pair, generated exactly like on
+        registration, and invalidates the previous pair immediately: any later
+        call authenticated with the old secret is rejected with `401`. The new
+        secret is shown once and cannot be retrieved again.
+
+        The request has no body.
+      security:
+        - bearerAuth: []
+        - serviceCredentials: []
+      responses:
+        '200':
+          description: A fresh credential pair. The previous one no longer authenticates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCredentials'
+              examples:
+                rotated:
+                  summary: Rotated credentials for `backup-service`
+                  value:
+                    id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+                    name: backup-service
+                    apiKey: lbso7yVh1xy-_m-tkZQLiSU4EJJO46lzjfACF8G0q2I
+                    apiSecret: D2CA1qPJVyNfG6kGkO0Y93yaCES2kweK2anocaDH_-w
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ServiceNotFound'
 components:
+  securitySchemes:
+    serviceCredentials:
+      type: http
+      scheme: basic
+      description: |
+        Machine identity. HTTP Basic carrying the `apiKey` as username and the
+        `apiSecret` as password, i.e.
+        `Authorization: Basic base64(apiKey + ":" + apiSecret)`.
+
+        The secret is verified against its stored SHA-256 hash with a
+        constant-time comparison. Unknown, malformed or rotated-away credentials
+        are `401`. Only ever sent over TLS; the header value is never logged.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Human identity. `Authorization: Bearer <token>` with the stateless HS256
+        JWT issued by `POST /api/auth/login`, valid for 8 hours.
+
+        A missing, malformed or expired token is `401`. A valid token whose role
+        is `USER` is `403` on every write; the `USER` role grants nothing beyond
+        the anonymous reads.
   parameters:
     TaskId:
       name: id
@@ -234,11 +684,36 @@ components:
         format: uuid
         examples:
           - 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
+    ServiceId:
+      name: id
+      in: path
+      required: true
+      description: Server-generated identifier of the service.
+      schema:
+        type: string
+        format: uuid
+        examples:
+          - 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+    ServiceNameFilter:
+      name: service
+      in: query
+      required: false
+      description: |
+        Optional filter: return only the tasks owned by the service with this
+        exact name. A name that matches no registered service simply yields an
+        empty list.
+      schema:
+        type: string
+        minLength: 1
+        pattern: \S
+        examples:
+          - backup-service
   responses:
     ValidationError:
       description: |
         The payload is invalid. The response lists every offending field:
-        blank `name`, `service` or `script`, unknown `status`, missing or invalid
+        blank `name` or `script`, `service` missing or naming an unregistered
+        service when the caller is an ADMIN, unknown `status`, missing or invalid
         `cronExpr` when `scheduled` is true, and `maxExecutions` below 1.
       content:
         application/json:
@@ -268,6 +743,85 @@ components:
                 errors:
                   - field: status
                     message: must be one of CREATED, RUNNING, COMPLETED, CANCELED
+            unknownService:
+              summary: ADMIN caller naming a service that is not registered
+              value:
+                message: Validation failed
+                errors:
+                  - field: service
+                    message: must name a registered service
+            missingService:
+              summary: ADMIN caller that omitted the owning service
+              value:
+                message: Validation failed
+                errors:
+                  - field: service
+                    message: must not be blank
+    ServiceValidationError:
+      description: The service payload is invalid; the response lists every offending field.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          examples:
+            blankName:
+              summary: Blank service name
+              value:
+                message: Validation failed
+                errors:
+                  - field: name
+                    message: must not be blank
+    Unauthorized:
+      description: |
+        The caller is not authenticated: no `Authorization` header, or credentials
+        that are malformed, expired, unknown or already rotated away.
+
+        No `WWW-Authenticate` challenge is returned, so browsers do not open a
+        native credential dialog; the UI redirects to its own login screen.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingCredentials:
+              summary: No credentials were sent
+              value:
+                message: Authentication required
+            staleSecret:
+              summary: A rotated-away apiSecret was used
+              value:
+                message: Invalid credentials
+    Forbidden:
+      description: |
+        The caller is authenticated but not allowed: a `USER`-role token on a
+        write, or service credentials acting on a resource owned by another
+        service. The targeted resource is left unchanged.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            userRole:
+              summary: A USER-role token attempted a write
+              value:
+                message: Access denied
+            otherService:
+              summary: Service credentials targeting another service's resource
+              value:
+                message: Access denied
+    AdminOnly:
+      description: |
+        The caller is authenticated but is not an ADMIN user: a `USER`-role token
+        or service credentials. This operation is reserved to ADMIN JWTs.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notAdmin:
+              summary: The caller is not an ADMIN user
+              value:
+                message: Access denied
     TaskNotFound:
       description: No task exists with the given id.
       content:
@@ -279,17 +833,31 @@ components:
               summary: Unknown task id
               value:
                 message: Task 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31 not found
+    ServiceNotFound:
+      description: No service exists with the given id.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notFound:
+              summary: Unknown service id
+              value:
+                message: Service 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07 not found
     DuplicateName:
-      description: Another task already uses this `name` (comparison is case-insensitive).
+      description: |
+        Another task of the same owning service already uses this `name`
+        (comparison is case-insensitive). Two different services may each have a
+        task with the same name.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           examples:
             duplicate:
-              summary: A task named "Backup" already exists
+              summary: The owning service already has a task named "Backup"
               value:
-                message: A task with name 'backup' already exists
+                message: A task with name 'backup' already exists for service 'backup-service'
   schemas:
     TaskStatus:
       type: string
@@ -310,16 +878,18 @@ components:
         Payload accepted by `POST /api/tasks` and `PUT /api/tasks/{id}`.
         Server-managed fields (`id`, `creationDate`, `modificationDate`) are not part
         of this payload; if a client sends them they are ignored.
+
+        `service` is conditional on the caller's identity: required for an ADMIN
+        JWT, ignored for service credentials. See the operation descriptions.
       required:
         - name
-        - service
         - script
       properties:
         name:
           type: string
           description: |
             Human-readable task name. Required, non-blank and unique
-            case-insensitively across all tasks.
+            case-insensitively among the tasks of the owning service.
           minLength: 1
           pattern: \S
           examples:
@@ -327,9 +897,15 @@ components:
         service:
           type: string
           description: |
-            Name of the service that owns the task. Required and non-blank.
-            Stored as free text and accepted as-is: it is not checked against a
-            service registry.
+            Name of the service that owns the task.
+
+            With an ADMIN JWT this field is required, must be non-blank and must
+            name a registered service; otherwise the request fails with `400`
+            naming `service`.
+
+            With service credentials the field is ignored: the owner is always
+            the authenticated service, even if this field names another one, and
+            the response reports the authenticated service.
           minLength: 1
           pattern: \S
           examples:
@@ -416,7 +992,9 @@ components:
             - 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31
         name:
           type: string
-          description: Human-readable task name, unique case-insensitively.
+          description: |
+            Human-readable task name, unique case-insensitively among the tasks of
+            the owning service.
           minLength: 1
           pattern: \S
           examples:
@@ -440,7 +1018,9 @@ components:
             - '2026-08-19T22:30:00Z'
         service:
           type: string
-          description: Name of the service that owns the task, stored as free text.
+          description: |
+            Name of the registered service that owns the task. Always present:
+            every task belongs to exactly one service.
           minLength: 1
           pattern: \S
           examples:
@@ -499,6 +1079,217 @@ components:
       description: Tasks ordered by `creationDate` descending (newest first).
       items:
         $ref: '#/components/schemas/Task'
+    ServiceRequest:
+      type: object
+      description: |
+        Payload accepted by `POST /api/services` (registration) and
+        `PUT /api/services/{id}` (rename). Credentials are never part of a
+        request: they are generated by the server.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the service. Required and non-blank.
+          minLength: 1
+          pattern: \S
+          examples:
+            - backup-service
+      examples:
+        - name: backup-service
+    Service:
+      type: object
+      description: |
+        A registered service as returned by the API. This payload never carries
+        `apiKey` or `apiSecret`.
+      required:
+        - id
+        - name
+        - creationDate
+        - modificationDate
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Server-generated identifier of the service.
+          examples:
+            - 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+        name:
+          type: string
+          description: Name of the service, as referenced by `Task.service`.
+          minLength: 1
+          pattern: \S
+          examples:
+            - backup-service
+        creationDate:
+          type: string
+          format: date-time
+          readOnly: true
+          description: UTC instant at which the service was registered.
+          examples:
+            - '2026-08-18T09:00:00Z'
+        modificationDate:
+          type: string
+          format: date-time
+          readOnly: true
+          description: |
+            UTC instant of the last modification (rename or credential rotation).
+          examples:
+            - '2026-08-18T09:00:00Z'
+      examples:
+        - id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+          name: backup-service
+          creationDate: '2026-08-18T09:00:00Z'
+          modificationDate: '2026-08-18T09:00:00Z'
+    ServiceList:
+      type: array
+      description: Registered services ordered by `name` ascending, without credentials.
+      items:
+        $ref: '#/components/schemas/Service'
+    ServiceCredentials:
+      type: object
+      description: |
+        One-time credential payload, returned only by `POST /api/services` and
+        `POST /api/services/{id}/credentials`.
+
+        `apiSecret` is shown exactly once: the server stores only a hex-encoded
+        SHA-256 hash of it, so it can never be read again through the API nor
+        found in the logs. Rotating replaces both values and invalidates the
+        previous pair immediately.
+      required:
+        - id
+        - name
+        - apiKey
+        - apiSecret
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Identifier of the service the credentials belong to.
+          examples:
+            - 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+        name:
+          type: string
+          description: Name of the service the credentials belong to.
+          minLength: 1
+          pattern: \S
+          examples:
+            - backup-service
+        apiKey:
+          type: string
+          description: |
+            Public part of the machine credentials, sent as the HTTP Basic
+            username. 256 random bits, base64url-encoded without padding.
+          pattern: ^[A-Za-z0-9_-]{43}$
+          examples:
+            - RnyeHtZ5IOgN-oBcMGGmfiscmSFZdvA-dyPRge5EXyA
+        apiSecret:
+          type: string
+          description: |
+            Secret part of the machine credentials, sent as the HTTP Basic
+            password. 256 random bits, base64url-encoded without padding.
+            Returned exactly once and never retrievable afterwards.
+          pattern: ^[A-Za-z0-9_-]{43}$
+          examples:
+            - 13DDBdX0UGRYiyKkg1Gm_XOMpE8Q4nzJZ4Ok70uHciY
+      examples:
+        - id: 7b1f0a44-5c92-4d0e-8a13-6f2b9c4e1d07
+          name: backup-service
+          apiKey: RnyeHtZ5IOgN-oBcMGGmfiscmSFZdvA-dyPRge5EXyA
+          apiSecret: 13DDBdX0UGRYiyKkg1Gm_XOMpE8Q4nzJZ4Ok70uHciY
+    UserRole:
+      type: string
+      description: |
+        Role of a UI user. `ADMIN` may write tasks for any service and manage the
+        service registry; `USER` grants nothing beyond the anonymous reads.
+      enum:
+        - ADMIN
+        - USER
+      examples:
+        - ADMIN
+    LoginRequest:
+      type: object
+      description: Credentials of a UI user.
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username of the user.
+          minLength: 1
+          examples:
+            - admin
+        password:
+          type: string
+          format: password
+          description: Password of the user.
+          minLength: 1
+          examples:
+            - admin
+      examples:
+        - username: admin
+          password: admin
+    LoginResponse:
+      type: object
+      description: |
+        The issued JWT and the data the UI needs to use it: when it stops being
+        valid and which role it carries.
+      required:
+        - token
+        - expiresAt
+        - role
+      properties:
+        token:
+          type: string
+          description: |
+            Stateless HS256 JWT, to be sent back as `Authorization: Bearer <token>`.
+            There is no refresh token: after `expiresAt` the user logs in again.
+          minLength: 1
+          examples:
+            - eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJBRE1JTiJ9.5m0Yy8Qw3xVQd1kZ2m9Rz4nGf7pJcT0aH6bX8sLuE9M
+        expiresAt:
+          type: string
+          format: date-time
+          description: UTC instant at which the token expires, 8 hours after issuing.
+          examples:
+            - '2026-08-20T15:05:12Z'
+        role:
+          $ref: '#/components/schemas/UserRole'
+      examples:
+        - token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJBRE1JTiJ9.5m0Yy8Qw3xVQd1kZ2m9Rz4nGf7pJcT0aH6bX8sLuE9M
+          expiresAt: '2026-08-20T15:05:12Z'
+          role: ADMIN
+    PasswordChangeRequest:
+      type: object
+      description: Payload accepted by `POST /api/users/me/password`.
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          description: |
+            The caller's current password. Must match the stored one, otherwise
+            `400` naming `currentPassword`.
+          minLength: 1
+          examples:
+            - admin
+        newPassword:
+          type: string
+          format: password
+          description: |
+            The replacement password. At least 8 characters and different from
+            the current one, otherwise `400` naming `newPassword`.
+          minLength: 8
+          examples:
+            - sup3r-s3cret-pass
+      examples:
+        - currentPassword: admin
+          newPassword: sup3r-s3cret-pass
     FieldError:
       type: object
       description: A single validation failure bound to a request field.
@@ -545,7 +1336,9 @@ components:
               message: must be greater than or equal to 1
     ErrorResponse:
       type: object
-      description: Generic error payload used for `404` and `409` responses.
+      description: |
+        Generic error payload used for `401`, `403`, `404` and `409` responses.
+        It never contains credential values.
       required:
         - message
       properties:
@@ -555,4 +1348,4 @@ components:
           examples:
             - Task 3f8b1c62-0d8a-4a3e-9a8c-2f1d5b7e4c31 not found
       examples:
-        - message: A task with name 'backup' already exists
+        - message: A task with name 'backup' already exists for service 'backup-service'
