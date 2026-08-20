@@ -63,4 +63,30 @@ describe('TaskListPage', () => {
     expect(await screen.findByText('Backup job')).toBeInTheDocument()
     expect(screen.queryByText('Report job')).not.toBeInTheDocument()
   })
+
+  it('treats a blank filter as no filter instead of querying a blank service name', async () => {
+    seedTask({ name: 'Backup job', service: 'backup-service' })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('Backup job')
+
+    await user.type(screen.getByLabelText(/filter by service/i), '   ')
+
+    expect(await screen.findByText('Backup job')).toBeInTheDocument()
+  })
+
+  it('says the filter matched nothing rather than that there are no tasks', async () => {
+    seedTask({ name: 'Backup job', service: 'backup-service' })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('Backup job')
+
+    await user.type(screen.getByLabelText(/filter by service/i), 'unknown-service')
+
+    expect(
+      await screen.findByText(/no tasks owned by "unknown-service"/i),
+    ).toBeInTheDocument()
+  })
 })

@@ -13,10 +13,13 @@ import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -98,6 +101,68 @@ class ServiceRegistryAcceptanceTest {
 			.filter(message -> message != null)
 			.toList();
 		assertThat(loggedMessages).noneMatch(message -> message.contains(apiSecret));
+	}
+
+	/**
+	 * "The Authorization header value is never written to application logs"
+	 * (specs/service-registry-and-task-scoping.md, Scope). The happy path is covered
+	 * above; this covers the paths that actually tempt a logger - rejected and
+	 * malformed credentials - for both authentication schemes.
+	 */
+	@Test
+	void rejectedCredentialsNeverReachTheLogs() {
+		String admin = adminToken(restTemplate);
+		Map<String, Object> service = registerNewService(restTemplate, admin, "log-leak-service");
+		String apiKey = (String) service.get("apiKey");
+		String apiSecret = (String) service.get("apiSecret");
+		logCapture.list.clear();
+
+		Map<String, Object> payload = Map.of("name", uniqueName("Rejected write"), "script", "/opt/scripts/x.sh");
+		// A valid apiKey with a wrong secret, the correct pair on an ADMIN-only URL,
+		// a malformed Basic header and a garbage bearer token.
+		jsonExchange(restTemplate, "/api/tasks", HttpMethod.POST, basic(apiKey, "wrong-" + apiSecret), payload);
+		jsonExchange(restTemplate, "/api/services", HttpMethod.POST, basic(apiKey, apiSecret),
+				Map.of("name", uniqueName("denied")));
+		HttpHeaders malformed = new HttpHeaders();
+		malformed.set(HttpHeaders.AUTHORIZATION, "Basic not-valid-base64!!");
+		jsonExchange(restTemplate, "/api/tasks", HttpMethod.POST, malformed, payload);
+		HttpHeaders garbageBearer = new HttpHeaders();
+		garbageBearer.set(HttpHeaders.AUTHORIZATION, "Bearer " + apiSecret);
+		jsonExchange(restTemplate, "/api/tasks", HttpMethod.POST, garbageBearer, payload);
+
+		String encodedHeader = Base64.getEncoder()
+			.encodeToString((apiKey + ":" + apiSecret).getBytes(StandardCharsets.UTF_8));
+		List<String> loggedMessages = logCapture.list.stream()
+			.map(ILoggingEvent::getFormattedMessage)
+			.filter(message -> message != null)
+			.toList();
+		assertThat(loggedMessages).noneMatch(message -> message.contains(apiSecret));
+		assertThat(loggedMessages).noneMatch(message -> message.contains(encodedHeader));
+	}
+
+	/**
+	 * A service name is the value {@code Task.service} carries and the value an ADMIN
+	 * names when creating a task, so two services cannot share one (the
+	 * {@code ux_services_name_ci} index enforces it case-insensitively). api/openapi.yaml
+	 * declares no 409 on the service endpoints, so the clash is reported with the
+	 * documented {@code ServiceValidationError}: 400 naming the offending {@code name}.
+	 */
+	@Test
+	void registeringATwiceUsedNameReturns400NamingTheNameField() {
+		String admin = adminToken(restTemplate);
+		String name = uniqueName("duplicate-service");
+		assertThat(registerService(restTemplate, admin, name).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+		ResponseEntity<Map<String, Object>> duplicate = registerService(restTemplate, admin,
+				name.toUpperCase(java.util.Locale.ROOT));
+
+		assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		Map<String, Object> body = duplicate.getBody();
+		assertThat(body).isNotNull();
+		assertThat(body.get("message")).isEqualTo("Validation failed");
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> errors = (List<Map<String, Object>>) body.get("errors");
+		assertThat(errors).extracting(error -> error.get("field")).containsExactly("name");
 	}
 
 	@Test

@@ -93,11 +93,29 @@ function validate(payload: TaskRequest): FieldError[] {
   return errors
 }
 
-function findDuplicate(name: string, excludeId?: string): Task | undefined {
+/**
+ * `name` is unique case-insensitively *per owning service*: two different
+ * services may each own a task with the same name (see the `DuplicateName`
+ * response in api/openapi.yaml).
+ */
+function findDuplicate(
+  name: string,
+  service: string,
+  excludeId?: string,
+): Task | undefined {
   return tasks.find(
     (task) =>
-      task.id !== excludeId && task.name.toLowerCase() === name.toLowerCase(),
+      task.id !== excludeId &&
+      task.service === service &&
+      task.name.toLowerCase() === name.toLowerCase(),
   )
+}
+
+function duplicateName(name: string, service: string) {
+  const body: ErrorResponse = {
+    message: `A task with name '${name}' already exists for service '${service}'`,
+  }
+  return HttpResponse.json(body, { status: 409 })
 }
 
 function nextId(): string {
@@ -158,11 +176,8 @@ export const taskHandlers = [
       }
       return HttpResponse.json(body, { status: 400 })
     }
-    if (findDuplicate(payload.name)) {
-      const body: ErrorResponse = {
-        message: `A task with name '${payload.name}' already exists`,
-      }
-      return HttpResponse.json(body, { status: 409 })
+    if (findDuplicate(payload.name, payload.service)) {
+      return duplicateName(payload.name, payload.service)
     }
 
     const nowIso = new Date().toISOString()
@@ -202,11 +217,8 @@ export const taskHandlers = [
       }
       return HttpResponse.json(body, { status: 400 })
     }
-    if (findDuplicate(payload.name, existing.id)) {
-      const body: ErrorResponse = {
-        message: `A task with name '${payload.name}' already exists`,
-      }
-      return HttpResponse.json(body, { status: 409 })
+    if (findDuplicate(payload.name, payload.service, existing.id)) {
+      return duplicateName(payload.name, payload.service)
     }
 
     existing.name = payload.name

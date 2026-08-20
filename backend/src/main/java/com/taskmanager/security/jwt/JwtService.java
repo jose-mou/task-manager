@@ -5,6 +5,8 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +26,8 @@ import java.util.Optional;
 @Component
 public class JwtService {
 
+	private static final Logger log = LoggerFactory.getLogger(JwtService.class);
+
 	private static final String ROLE_CLAIM = "role";
 
 	private final SecretKey key;
@@ -33,11 +37,26 @@ public class JwtService {
 	private final Clock clock;
 
 	public JwtService(@Value("${app.jwt.secret}") String base64Secret, @Value("${app.jwt.expiration}") String expiration,
-			Clock clock) {
+			@Value("${app.jwt.development-secret}") String developmentSecret, Clock clock) {
 		byte[] keyBytes = Base64.getDecoder().decode(base64Secret);
+		// hmacShaKeyFor refuses anything below the 256 bits HS256 requires.
 		this.key = Keys.hmacShaKeyFor(keyBytes);
 		this.expiration = Duration.parse(expiration);
 		this.clock = clock;
+		warnIfSigningWithTheDevelopmentKey(base64Secret, developmentSecret);
+	}
+
+	/**
+	 * The signing key is what makes an ADMIN token unforgeable, and the built-in
+	 * development default is committed to the repository - anyone who can read it
+	 * can mint an ADMIN JWT. Startup stays possible (the local stack and the tests
+	 * rely on the default), but never silently.
+	 */
+	private void warnIfSigningWithTheDevelopmentKey(String base64Secret, String developmentSecret) {
+		if (base64Secret.equals(developmentSecret)) {
+			log.warn("app.jwt.secret is still the built-in development key: anyone with access to the source can "
+					+ "forge an ADMIN token. Set the JWT_SECRET environment variable outside local development.");
+		}
 	}
 
 	public IssuedToken issue(String username, UserRole role) {

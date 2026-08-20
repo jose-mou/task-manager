@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createTask, getTask, updateTask } from '../api/client'
 import { listServices } from '../api/servicesClient'
@@ -40,6 +40,19 @@ export function TaskFormPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>()
   const [submitting, setSubmitting] = useState(false)
 
+  /** A rejected session on a write is logged out and sent back to /login. */
+  const handleAuthError = useCallback(
+    (error: unknown): boolean => {
+      if (error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) {
+        logout()
+        navigate('/login')
+        return true
+      }
+      return false
+    },
+    [logout, navigate],
+  )
+
   useEffect(() => {
     let cancelled = false
     listServices()
@@ -48,18 +61,12 @@ export function TaskFormPage() {
       })
       .catch((error) => {
         if (cancelled) return
-        if (error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) {
-          logout()
-          navigate('/login')
-        } else {
-          setLoadError('Could not load the services.')
-        }
+        if (!handleAuthError(error)) setLoadError('Could not load the services.')
       })
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [handleAuthError])
 
   useEffect(() => {
     if (!isEdit || !id) return
@@ -94,10 +101,7 @@ export function TaskFormPage() {
         setFieldErrors(error.fieldErrors)
       } else if (error instanceof ApiConflictError) {
         setFieldErrors([{ field: 'name', message: error.message }])
-      } else if (error instanceof ApiUnauthorizedError || error instanceof ApiForbiddenError) {
-        logout()
-        navigate('/login')
-      } else {
+      } else if (!handleAuthError(error)) {
         setSubmitError('Could not save the task.')
       }
     } finally {

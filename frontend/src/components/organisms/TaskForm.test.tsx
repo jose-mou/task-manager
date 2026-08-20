@@ -199,14 +199,14 @@ describe('TaskForm', () => {
         services={SERVICES}
         onSubmit={vi.fn()}
         fieldErrors={[
-          { field: 'name', message: "A task with name 'backup' already exists" },
+          { field: 'name', message: "A task with name 'backup' already exists for service 'backup-service'" },
         ]}
       />,
     )
 
     const nameInput = screen.getByLabelText(/name/i)
     expect(nameInput).toHaveAccessibleDescription(
-      "A task with name 'backup' already exists",
+      "A task with name 'backup' already exists for service 'backup-service'",
     )
   })
 })

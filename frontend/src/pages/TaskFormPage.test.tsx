@@ -76,7 +76,7 @@ describe('TaskFormPage - create', () => {
 
   it('surfaces the 409 duplicate-name error on the name field', async () => {
     seedService({ name: 'svc' })
-    seedTask({ name: 'Backup' })
+    seedTask({ name: 'Backup', service: 'svc' })
     loginAs('ADMIN')
     const user = userEvent.setup()
     renderAt('/tasks/new')
@@ -87,7 +87,9 @@ describe('TaskFormPage - create', () => {
     await user.click(screen.getByRole('button', { name: /save/i }))
 
     expect(
-      await screen.findByText("A task with name 'backup' already exists"),
+      await screen.findByText(
+        "A task with name 'backup' already exists for service 'svc'",
+      ),
     ).toBeInTheDocument()
   })
 

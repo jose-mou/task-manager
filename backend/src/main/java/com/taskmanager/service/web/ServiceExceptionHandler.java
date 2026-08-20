@@ -40,9 +40,14 @@ public class ServiceExceptionHandler {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
 	}
 
+	/**
+	 * A name already taken by another service is reported as the contract's
+	 * {@code ServiceValidationError} (400 naming {@code name}); api/openapi.yaml
+	 * declares no 409 for {@code POST /api/services} nor {@code PUT /api/services/{id}}.
+	 */
 	@ExceptionHandler(DuplicateServiceNameException.class)
-	public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateServiceNameException ex) {
-		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
+	public ResponseEntity<ValidationErrorResponse> handleDuplicate(DuplicateServiceNameException ex) {
+		return ResponseEntity.badRequest().body(ValidationErrorResponse.of(ex.error()));
 	}
 
 	/** A path {@code id} that is not a UUID cannot match any stored service: reported as 404, like an unknown id. */

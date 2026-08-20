@@ -14,6 +14,7 @@ import java.util.Map;
 
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.adminToken;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.basic;
+import static com.taskmanager.acceptance.support.AcceptanceTestSupport.bearer;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.createTask;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.minimalTaskPayload;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.registerNewService;
@@ -69,6 +70,43 @@ class ServiceCredentialRotationAcceptanceTest {
 				basic(newApiKey, newApiSecret), minimalTaskPayload(uniqueName("Fresh write"), "/opt/scripts/fresh.sh"));
 
 		assertThat(writeWithNewSecret.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+	}
+
+	/**
+	 * Rotation "is allowed to an ADMIN JWT or to that same service's own credentials,
+	 * and returns 403 for another service's credentials"
+	 * (specs/service-registry-and-task-scoping.md, rule 2). The victim's credentials
+	 * must keep working afterwards: a refused rotation rotates nothing.
+	 */
+	@Test
+	void rotatingAnotherServicesCredentialsIsForbiddenAndLeavesThemUntouched() {
+		String admin = adminToken(restTemplate);
+		Map<String, Object> victim = registerNewService(restTemplate, admin, "rotation-victim-service");
+		Map<String, Object> intruder = registerNewService(restTemplate, admin, "rotation-intruder-service");
+		String victimId = (String) victim.get("id");
+
+		ResponseEntity<Map<String, Object>> response = rotateCredentials(restTemplate, victimId,
+				basic((String) intruder.get("apiKey"), (String) intruder.get("apiSecret")));
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+		ResponseEntity<Map<String, Object>> writeWithUntouchedSecret = createTask(restTemplate,
+				basic((String) victim.get("apiKey"), (String) victim.get("apiSecret")),
+				minimalTaskPayload(uniqueName("Still authenticating"), "/opt/scripts/untouched.sh"));
+		assertThat(writeWithUntouchedSecret.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+	}
+
+	@Test
+	void rotatingWithAnAdminJwtIsAllowed() {
+		String admin = adminToken(restTemplate);
+		Map<String, Object> service = registerNewService(restTemplate, admin, "admin-rotated-service");
+
+		ResponseEntity<Map<String, Object>> response = rotateCredentials(restTemplate, (String) service.get("id"),
+				bearer(admin));
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).isNotNull();
+		assertThat((String) response.getBody().get("apiSecret")).isNotEqualTo(service.get("apiSecret"));
 	}
 
 }

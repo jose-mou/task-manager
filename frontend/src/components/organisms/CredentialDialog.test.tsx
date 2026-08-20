@@ -43,4 +43,34 @@ describe('CredentialDialog', () => {
 
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('moves focus into the dialog when it opens', () => {
+    render(<CredentialDialog credentials={CREDENTIALS} onClose={vi.fn()} />)
+
+    expect(screen.getByRole('dialog')).toHaveFocus()
+  })
+
+  it('closes on Escape', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<CredentialDialog credentials={CREDENTIALS} onClose={onClose} />)
+
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('keeps keyboard focus inside the dialog', async () => {
+    const user = userEvent.setup()
+    render(<CredentialDialog credentials={CREDENTIALS} onClose={vi.fn()} />)
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /copy/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /close/i })).toHaveFocus()
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /copy/i })).toHaveFocus()
+  })
 })

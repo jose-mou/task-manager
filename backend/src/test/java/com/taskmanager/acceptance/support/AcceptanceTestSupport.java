@@ -122,6 +122,17 @@ public final class AcceptanceTestSupport {
 		return restTemplate.exchange("/api/services/" + id + "/credentials", HttpMethod.POST, request, MAP_TYPE);
 	}
 
+	public static ResponseEntity<Map<String, Object>> renameService(TestRestTemplate restTemplate, String id,
+			HttpHeaders authHeaders, String newName) {
+		return jsonExchange(restTemplate, "/api/services/" + id, HttpMethod.PUT, authHeaders, Map.of("name", newName));
+	}
+
+	public static ResponseEntity<Map<String, Object>> deleteService(TestRestTemplate restTemplate, String id,
+			HttpHeaders authHeaders) {
+		HttpEntity<Void> request = new HttpEntity<>(null, authHeaders);
+		return restTemplate.exchange("/api/services/" + id, HttpMethod.DELETE, request, MAP_TYPE);
+	}
+
 	// ---- tasks -------------------------------------------------
 
 	public static Map<String, Object> minimalTaskPayload(String name, String script) {

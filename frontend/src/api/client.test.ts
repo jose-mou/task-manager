@@ -109,14 +109,29 @@ describe('task API client', () => {
     }
   })
 
-  it('throws ApiConflictError on duplicate name (case-insensitive)', async () => {
+  it('throws ApiConflictError on a duplicate name within the same service (case-insensitive)', async () => {
     seedService({ name: 'svc' })
-    seedTask({ name: 'Backup' })
+    seedTask({ name: 'Backup', service: 'svc' })
     loginAs('ADMIN')
 
     await expect(
       createTask({ name: 'backup', service: 'svc', script: '/s.sh' }),
     ).rejects.toBeInstanceOf(ApiConflictError)
+  })
+
+  it('accepts the same task name for a different owning service', async () => {
+    seedService({ name: 'backup-service' })
+    seedService({ name: 'reporting-service' })
+    seedTask({ name: 'Backup', service: 'backup-service' })
+    loginAs('ADMIN')
+
+    const task = await createTask({
+      name: 'Backup',
+      service: 'reporting-service',
+      script: '/s.sh',
+    })
+
+    expect(task.service).toBe('reporting-service')
   })
 
   it('updates a task and returns the updated fields', async () => {

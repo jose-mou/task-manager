@@ -20,6 +20,16 @@ function renderAt(path: string) {
   )
 }
 
+/** Every key/value a Web Storage area currently holds, as one string. */
+function dump(storage: Storage): string {
+  const entries: string[] = []
+  for (let i = 0; i < storage.length; i += 1) {
+    const key = storage.key(i)
+    if (key !== null) entries.push(`${key}=${storage.getItem(key)}`)
+  }
+  return entries.join('\n')
+}
+
 describe('ServicesAdminPage', () => {
 
   it('lists the registered services', async () => {
@@ -47,6 +57,18 @@ describe('ServicesAdminPage', () => {
     expect(screen.getByText('backup-service')).toBeInTheDocument()
   })
 
+  it('shows the 400 validation message when the service name is blank', async () => {
+    loginAs('ADMIN')
+    const user = userEvent.setup()
+    renderAt('/admin/services')
+
+    await screen.findByText(/no services registered/i)
+    await user.click(screen.getByRole('button', { name: /register service/i }))
+
+    expect(await screen.findByText('must not be blank')).toBeInTheDocument()
+    expect(screen.getByLabelText(/new service name/i)).toBeInvalid()
+  })
+
   it('closes the credential dialog and never shows it again for that action', async () => {
     loginAs('ADMIN')
     const user = userEvent.setup()
@@ -59,6 +81,35 @@ describe('ServicesAdminPage', () => {
     await user.click(screen.getByRole('button', { name: /close/i }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('leaves no way to recover the apiSecret once the dialog is closed', async () => {
+    loginAs('ADMIN')
+    const user = userEvent.setup()
+    const { unmount } = renderAt('/admin/services')
+
+    await user.type(screen.getByLabelText(/new service name/i), 'backup-service')
+    await user.click(screen.getByRole('button', { name: /register service/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    const secret = dialog.querySelectorAll('dd')[1].textContent ?? ''
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/)
+
+    await user.click(screen.getByRole('button', { name: /close/i }))
+
+    // The secret only ever lived in the register response held in component
+    // state: it must be in no storage, in no URL, and gone from the document.
+    expect(dump(sessionStorage)).not.toContain(secret)
+    expect(dump(localStorage)).not.toContain(secret)
+    expect(window.location.href).not.toContain(secret)
+    expect(document.body.textContent).not.toContain(secret)
+
+    // Reopening the screen must not bring it back either.
+    unmount()
+    renderAt('/admin/services')
+    await screen.findByText('backup-service')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toContain(secret)
   })
 
   it('renames a service', async () => {

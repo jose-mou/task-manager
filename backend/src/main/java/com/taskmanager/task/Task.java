@@ -37,15 +37,18 @@ public class Task {
 	private Instant modificationDate;
 
 	/**
-	 * EAGER rather than the usual LAZY default: every {@code Task} response
-	 * needs the owning service's name (api/openapi.yaml, {@code Task.service}),
-	 * and {@code spring.jpa.open-in-view=false} means there is no Hibernate
-	 * session left open by the time {@link com.taskmanager.task.web.TaskResponse}
-	 * is built in the web layer to lazily initialize it. Hibernate resolves a
-	 * {@code @ManyToOne} EAGER association with a SQL join, not a second
-	 * query, so this does not introduce an N+1.
+	 * EAGER (which is also the {@code @ManyToOne} default, stated explicitly
+	 * here because the choice is deliberate): every {@code Task} response needs
+	 * the owning service's name (api/openapi.yaml, {@code Task.service}), and
+	 * {@code spring.jpa.open-in-view=false} means no Hibernate session is left
+	 * open by the time {@link com.taskmanager.task.web.TaskResponse} is built in
+	 * the web layer to initialize it lazily.
+	 *
+	 * Eager alone only join-fetches when loading by id; the list queries of
+	 * {@link TaskRepository} carry an explicit entity graph so they do not
+	 * degrade into one select per owner.
 	 */
-	@ManyToOne(fetch = FetchType.EAGER)
+	@ManyToOne(fetch = FetchType.EAGER, optional = false)
 	@JoinColumn(name = "service_id", nullable = false)
 	private ServiceAccount owningService;
 

@@ -28,6 +28,7 @@ import static com.taskmanager.acceptance.support.AcceptanceTestSupport.loginToke
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.minimalTaskPayload;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.registerNewService;
 import static com.taskmanager.acceptance.support.AcceptanceTestSupport.uniqueName;
+import static com.taskmanager.acceptance.support.AcceptanceTestSupport.updateTask;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
 
@@ -103,6 +104,55 @@ class TaskAnonymousAndRoleAccessAcceptanceTest {
 				minimalTaskPayload(uniqueName("User role write attempt"), "/opt/scripts/deny-user.sh"));
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void aUserRoleJwtIsForbiddenFromUpdatingATaskAndAnAnonymousCallerIsUnauthorized() {
+		String admin = adminToken(restTemplate);
+		Map<String, Object> service = registerNewService(restTemplate, admin, "updatable-service");
+		ResponseEntity<Map<String, Object>> created = createTask(restTemplate,
+				basic((String) service.get("apiKey"), (String) service.get("apiSecret")),
+				minimalTaskPayload(uniqueName("Update target"), "/opt/scripts/update.sh"));
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		String id = (String) created.getBody().get("id");
+		Map<String, Object> payload = minimalTaskPayload(uniqueName("Hijacked"), "/opt/scripts/hijack.sh");
+
+		assertThat(updateTask(restTemplate, id, ANONYMOUS, payload).getStatusCode())
+			.isEqualTo(HttpStatus.UNAUTHORIZED);
+
+		String username = uniqueName("plain-updater");
+		String rawPassword = "plain-updater-password";
+		seedUserAccount(username, rawPassword);
+		String userToken = loginToken(restTemplate, username, rawPassword);
+
+		assertThat(updateTask(restTemplate, id, bearer(userToken), payload).getStatusCode())
+			.isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	/**
+	 * "Credentials are ignored when present, and are never required" on the anonymous
+	 * reads (specs/service-registry-and-task-scoping.md rule 7, and the `security: []`
+	 * of GET /api/tasks in api/openapi.yaml). A caller still holding a rotated-away
+	 * apiSecret must therefore keep reading normally - only its *writes* are rejected
+	 * with 401.
+	 */
+	@Test
+	void readsIgnoreCredentialsThatNoLongerAuthenticate() {
+		String admin = adminToken(restTemplate);
+		Map<String, Object> service = registerNewService(restTemplate, admin, "stale-credentials-service");
+		HttpHeaders staleCredentials = basic((String) service.get("apiKey"), "not-the-secret-anymore");
+		ResponseEntity<Map<String, Object>> created = createTask(restTemplate,
+				basic((String) service.get("apiKey"), (String) service.get("apiSecret")),
+				minimalTaskPayload(uniqueName("Readable with stale credentials"), "/opt/scripts/stale-read.sh"));
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		String id = (String) created.getBody().get("id");
+
+		assertThat(listTasks(restTemplate, staleCredentials).getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(getTask(restTemplate, id, staleCredentials).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+		ResponseEntity<Map<String, Object>> write = createTask(restTemplate, staleCredentials,
+				minimalTaskPayload(uniqueName("Stale write attempt"), "/opt/scripts/stale-write.sh"));
+		assertThat(write.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 }

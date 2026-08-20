@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ChangePasswordPage } from './ChangePasswordPage'
 import { AuthProvider } from '../auth/AuthContext'
+import { getSession, setSession } from '../auth/session'
 import { loginAs } from '../test/authHelpers'
 
 function renderAt(path: string) {
@@ -72,5 +73,24 @@ describe('ChangePasswordPage', () => {
     await user.click(screen.getByRole('button', { name: /change password/i }))
 
     expect(await screen.findByText('Login page')).toBeInTheDocument()
+  })
+
+  it('clears the stored session when the API rejects the token', async () => {
+    // A stored but no longer accepted token: the API answers 401 and the UI
+    // must drop it instead of keeping a session that authenticates nothing.
+    setSession({
+      token: 'no-longer-accepted',
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      role: 'ADMIN',
+    })
+    const user = userEvent.setup()
+    renderAt('/account/password')
+
+    await user.type(screen.getByLabelText(/current password/i), 'admin')
+    await user.type(screen.getByLabelText(/new password/i), 'sup3r-s3cret-pass')
+    await user.click(screen.getByRole('button', { name: /change password/i }))
+
+    expect(await screen.findByText('Login page')).toBeInTheDocument()
+    expect(getSession()).toBeNull()
   })
 })

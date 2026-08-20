@@ -5,11 +5,17 @@ interface TaskTableProps {
   tasks: Task[]
   /** Edit links are only rendered for an ADMIN; anonymous/USER get read-only rows. */
   isAdmin?: boolean
+  /** Shown instead of the table when there is nothing to list. */
+  emptyMessage?: string
 }
 
-export function TaskTable({ tasks, isAdmin = false }: TaskTableProps) {
+export function TaskTable({
+  tasks,
+  isAdmin = false,
+  emptyMessage = 'No tasks yet.',
+}: TaskTableProps) {
   if (tasks.length === 0) {
-    return <p>No tasks yet.</p>
+    return <p>{emptyMessage}</p>
   }
 
   return (

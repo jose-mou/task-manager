@@ -13,6 +13,8 @@ import {
   ApiValidationError,
 } from '../api/errors'
 import type { Service, ServiceCredentials } from '../api/types'
+import { FormField } from '../components/molecules/FormField'
+import { Input } from '../components/atoms/Input'
 import { CredentialDialog } from '../components/organisms/CredentialDialog'
 import { useAuth } from '../auth/AuthContext'
 
@@ -26,9 +28,13 @@ export function ServicesAdminPage() {
 
   const [newName, setNewName] = useState('')
   const [registerError, setRegisterError] = useState<string | null>(null)
+  const [registering, setRegistering] = useState(false)
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  // Id of the service whose row action is in flight; its buttons stay disabled
+  // until it settles, so a rotation cannot be fired twice by a double click.
+  const [pendingId, setPendingId] = useState<string | null>(null)
 
   // The one-time credentials of the last register/rotate call. Local state
   // only: there is nowhere this is persisted, so it is gone for good once the
@@ -62,6 +68,7 @@ export function ServicesAdminPage() {
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setRegisterError(null)
+    setRegistering(true)
     try {
       const result = await registerService({ name: newName })
       setCredentials(result)
@@ -74,6 +81,8 @@ export function ServicesAdminPage() {
       } else {
         setRegisterError('Could not register the service.')
       }
+    } finally {
+      setRegistering(false)
     }
   }
 
@@ -83,48 +92,75 @@ export function ServicesAdminPage() {
     setActionError(null)
   }
 
-  async function confirmRename(id: string) {
+  async function runRowAction(id: string, action: () => Promise<void>, failure: string) {
+    setActionError(null)
+    setPendingId(id)
     try {
-      await renameService(id, { name: renameValue })
-      setRenamingId(null)
-      loadServices()
+      await action()
     } catch (error) {
-      if (!handleAuthError(error)) setActionError('Could not rename the service.')
+      if (!handleAuthError(error)) setActionError(failure)
+    } finally {
+      setPendingId(null)
     }
   }
 
-  async function handleDelete(id: string) {
-    try {
-      await deleteService(id)
-      loadServices()
-    } catch (error) {
-      if (!handleAuthError(error)) setActionError('Could not delete the service.')
-    }
+  function confirmRename(id: string) {
+    return runRowAction(
+      id,
+      async () => {
+        await renameService(id, { name: renameValue })
+        setRenamingId(null)
+        loadServices()
+      },
+      'Could not rename the service.',
+    )
   }
 
-  async function handleRotate(id: string) {
-    try {
-      const result = await rotateServiceCredentials(id)
-      setCredentials(result)
-    } catch (error) {
-      if (!handleAuthError(error)) setActionError('Could not rotate the credentials.')
-    }
+  function handleDelete(id: string) {
+    return runRowAction(
+      id,
+      async () => {
+        await deleteService(id)
+        loadServices()
+      },
+      'Could not delete the service.',
+    )
+  }
+
+  function handleRotate(id: string) {
+    return runRowAction(
+      id,
+      async () => {
+        setCredentials(await rotateServiceCredentials(id))
+      },
+      'Could not rotate the credentials.',
+    )
   }
 
   return (
     <section>
       <h1>Services</h1>
 
-      <form onSubmit={handleRegister} className="form-field">
-        <label htmlFor="new-service-name">New service name</label>
-        <input
-          id="new-service-name"
-          required
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <button type="submit">Register service</button>
-        {registerError && <p role="alert">{registerError}</p>}
+      {/* `noValidate` like every other form of the app: the API contract is the
+          single source of validation truth and its 400 payload is what the
+          user sees. */}
+      <form onSubmit={handleRegister} noValidate>
+        <FormField
+          htmlFor="new-service-name"
+          label="New service name"
+          error={registerError ?? undefined}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          )}
+        </FormField>
+        <button type="submit" disabled={registering}>
+          Register service
+        </button>
       </form>
 
       {loadError && <p role="alert">{loadError}</p>}
@@ -159,7 +195,11 @@ export function ServicesAdminPage() {
                 <td>
                   {renamingId === service.id ? (
                     <>
-                      <button type="button" onClick={() => confirmRename(service.id)}>
+                      <button
+                        type="button"
+                        disabled={pendingId === service.id}
+                        onClick={() => confirmRename(service.id)}
+                      >
                         Save
                       </button>
                       <button type="button" onClick={() => setRenamingId(null)}>
@@ -171,10 +211,18 @@ export function ServicesAdminPage() {
                       <button type="button" onClick={() => startRename(service)}>
                         Rename
                       </button>
-                      <button type="button" onClick={() => handleRotate(service.id)}>
+                      <button
+                        type="button"
+                        disabled={pendingId === service.id}
+                        onClick={() => handleRotate(service.id)}
+                      >
                         Rotate credentials
                       </button>
-                      <button type="button" onClick={() => handleDelete(service.id)}>
+                      <button
+                        type="button"
+                        disabled={pendingId === service.id}
+                        onClick={() => handleDelete(service.id)}
+                      >
                         Delete
                       </button>
                     </>
